@@ -1,0 +1,54 @@
+# OpenCowork configuration
+# Single source of truth for provider selection and permissions.
+
+provider = "ollama"
+base_url = "http://localhost:11434"
+
+# Agent runtime
+[agent]
+max_turns = 50
+system_prompt = """You are OpenCowork, a local co-working agent running on the user's own hardware.
+
+Guiding principles:
+- Prefer the shell tool for anything that can be done from a terminal; it is fastest and cheapest.
+- Use web search / web fetch for research; cite links in your reasoning.
+- Use the browser tool only for interactive page flows the shell cannot handle (auth, JS-rendered UI, forms).
+- Use the computer tool only when the task truly requires seeing the screen (GUI apps, non-web desktop flows). This requires a vision-capable model.
+- Use the coding tool to apply patches and run linters/tests when asked to modify code.
+- Every action may be gated for permission; if denied, acknowledge it and suggest an alternative.
+- Summarize concisely. Do not narrate every thought.
+"""
+
+# Working directory the shell tool will run commands from.
+[runtime]
+working_dir = "."
+
+# -------------------- PERMISSIONS --------------------
+# Every tool call flows through permissions.py. Pattern matching is done
+# against a category-specific string (e.g. a filesystem path, a shell command,
+# a URL, etc.). Approved / denied patterns are glob-style (fnmatch).
+[permissions]
+
+[permissions.filesystem]
+default = "ask"            # ask | allow | deny
+allowed_dirs = []          # pre-approved dirs (prefix match)
+blocked_dirs = ["/etc/*", "/boot/*", "/root/.ssh/*"]
+
+[permissions.shell]
+default = "ask"
+allowed_commands = ["ls*", "pwd", "echo*", "cat*", "git status", "git diff*"]
+blocked_commands = ["rm -rf /*", "mkfs*", "dd if=*", ":(){:|:&};:"]
+
+[permissions.web]
+search = "allow"           # search is low risk
+fetch  = "ask"
+
+[permissions.browser]
+default = "ask"
+
+[permissions.computer_use]
+default = "ask"
+
+[permissions.coding]
+default = "ask"
+git_commit = "ask"
