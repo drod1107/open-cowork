@@ -22,9 +22,10 @@ type ChatItem =
 
 export interface ChatProps {
   socket: AgentSocket;
+  hasModel?: boolean;
 }
 
-export default function Chat({ socket }: ChatProps) {
+export default function Chat({ socket, hasModel = true }: ChatProps) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -142,29 +143,39 @@ export default function Chat({ socket }: ChatProps) {
         ))}
         {busy && <div className="text-slate-400 text-sm italic">thinking…</div>}
       </div>
-      <div className="border-t border-slate-800 p-3 flex gap-2">
-        <textarea
-          className="flex-1 bg-slate-900 rounded-md p-2 text-sm text-slate-100 outline-none border border-slate-800 focus:border-sky-600 resize-none"
-          rows={2}
-          placeholder="Ask OpenCowork… (Enter to send, Shift+Enter for newline)"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          data-testid="chat-input"
-        />
-        <button
-          className="bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 text-sm disabled:opacity-50"
-          onClick={send}
-          disabled={busy || !input.trim()}
-          data-testid="send-btn"
-        >
-          Send
-        </button>
+      <div className="border-t border-slate-800 p-3 space-y-2">
+        {!hasModel && (
+          <div
+            className="text-xs text-amber-300 bg-amber-900/20 border border-amber-700 rounded-md px-2 py-1"
+            data-testid="no-model-hint"
+          >
+            Pick a model in the top bar before sending a message.
+          </div>
+        )}
+        <div className="flex gap-2">
+          <textarea
+            className="flex-1 bg-slate-900 rounded-md p-2 text-sm text-slate-100 outline-none border border-slate-800 focus:border-sky-600 resize-none"
+            rows={2}
+            placeholder="Ask OpenCowork… (Enter to send, Shift+Enter for newline)"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            data-testid="chat-input"
+          />
+          <button
+            className="bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 text-sm disabled:opacity-50"
+            onClick={send}
+            disabled={busy || !input.trim()}
+            data-testid="send-btn"
+          >
+            Send
+          </button>
+        </div>
       </div>
     </div>
   );
