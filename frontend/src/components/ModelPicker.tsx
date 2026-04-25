@@ -1,12 +1,21 @@
 import { useEffect, useState } from "react";
 import { api, type Model } from "../lib/api";
 
-export default function ModelPicker() {
+export interface ModelPickerProps {
+  onChange?: (selected: string | null) => void;
+}
+
+export default function ModelPicker({ onChange }: ModelPickerProps) {
   const [models, setModels] = useState<Model[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [provider, setProvider] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const apply = (next: string | null) => {
+    setSelected(next);
+    onChange?.(next);
+  };
 
   const load = async (force = false) => {
     setLoading(true);
@@ -14,7 +23,7 @@ export default function ModelPicker() {
     try {
       const r = await api.listModels(force);
       setModels(r.models);
-      setSelected(r.selected);
+      apply(r.selected);
       setProvider(r.provider);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -25,11 +34,17 @@ export default function ModelPicker() {
 
   useEffect(() => {
     void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const choose = async (id: string) => {
-    await api.selectModel(id);
-    setSelected(id);
+    if (!id) return;
+    try {
+      await api.selectModel(id);
+      apply(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   return (
@@ -42,7 +57,7 @@ export default function ModelPicker() {
         data-testid="model-select"
       >
         <option value="" disabled>
-          {loading ? "loading…" : "select a model"}
+          {loading ? "loading…" : models.length ? "select a model" : "no models available"}
         </option>
         {models.map((m) => (
           <option key={m.id} value={m.id}>
@@ -55,10 +70,15 @@ export default function ModelPicker() {
         className="text-xs bg-slate-800 hover:bg-slate-700 rounded-md px-2 py-1"
         onClick={() => void load(true)}
         data-testid="refresh-models"
+        title="refresh model list"
       >
         ↻
       </button>
-      {error && <span className="text-xs text-red-400">{error}</span>}
+      {error && (
+        <span className="text-xs text-red-400" data-testid="model-error">
+          {error}
+        </span>
+      )}
     </div>
   );
 }
