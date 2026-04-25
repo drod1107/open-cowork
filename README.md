@@ -78,17 +78,38 @@ useful loop — pick a vision model for screen-driven flows.
 
 ## Tests
 
-Backend (pytest + httpx + respx):
+Three layers, run independently:
+
+**Backend** (pytest + httpx + respx + Starlette TestClient WebSockets):
 ```bash
 .venv/bin/python -m pytest backend/tests
 ```
+Covers config + permission gate + every tool + provider discovery + agent
+loop + scheduler + REST endpoints + WebSocket protocol.
 
-Frontend (vitest + testing-library):
+**Frontend integration** (vitest + testing-library, runs offline):
 ```bash
 cd frontend && npm test
 ```
+The headline file is `src/__tests__/App.integration.test.tsx`: it mounts the
+real `<App/>` and drives it through an in-memory fake server that replaces
+both `fetch` (REST) and `WebSocket`. Verifies the full flow end-to-end:
+WS connect, model load + select, queued sends flushed on open, streaming
+tokens, tool call cards, permission approval round-trip, error handling,
+panel switching, scheduler CRUD, permission default toggle persistence,
+computer-view screenshot rendering, and connection-status updates.
 
-Both suites run fully offline.
+**End-to-end** (Playwright against a real Chromium + the real FastAPI server):
+```bash
+cd frontend
+npm run e2e:install     # one-time browser download
+npm run build            # FastAPI serves from frontend/dist
+npm run e2e
+```
+The Playwright `webServer` block boots `python -m backend.main` automatically.
+Tests intercept `/api/models` so they pass without a running LLM provider; if
+you have Ollama / LM Studio / vLLM / SGLang up, they pass against the real
+provider too.
 
 ## Desktop control matrix
 
