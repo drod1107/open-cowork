@@ -81,10 +81,51 @@ async def test_schedules_crud(client):
     assert r.status_code == 200
     body = r.json()
     assert body["id"] == "abc"
+    # Regression: cron must come back exactly as submitted, not field-reordered.
+    assert body["cron"] == "0 9 * * *"
 
     r2 = await client.get("/api/schedules")
-    assert any(s["id"] == "abc" for s in r2.json()["schedules"])
+    listed = r2.json()["schedules"]
+    found = next(s for s in listed if s["id"] == "abc")
+    assert found["cron"] == "0 9 * * *"
 
     r3 = await client.delete("/api/schedules/abc")
     assert r3.status_code == 200
     assert r3.json()["removed"] is True
+
+
+async def test_websocket_chat_without_model_emits_error(client, monkeypatch):
+    """Regression: sending chat without a selected model used to return nothing
+    visible; the FE was left 'thinking' forever. Verify an error event arrives."""
+    from backend.main import app
+    from starlette.testclient import TestClient
+
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "chat", "text": "hi"})
+            event = ws.receive_json(mode="text")
+            assert event["type"] == "error"
+            assert "model" in event["error"].lower()
+
+
+async def test_websocket_ping_pongs(client):
+    from backend.main import app
+    from starlette.testclient import TestClient
+
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "ping"})
+            event = ws.receive_json(mode="text")
+            assert event == {"type": "pong"}
+
+
+async def test_websocket_unknown_message_type_returns_error(client):
+    from backend.main import app
+    from starlette.testclient import TestClient
+
+    with TestClient(app) as tc:
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_json({"type": "nope"})
+            event = ws.receive_json(mode="text")
+            assert event["type"] == "error"
+            assert "unknown" in event["error"].lower()

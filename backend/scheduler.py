@@ -56,8 +56,13 @@ def unregister_runner(scheduler_id: str) -> None:
     _RUNNERS.pop(scheduler_id, None)
 
 
-async def run_scheduled_task(scheduler_id: str, description: str) -> None:
-    """Top-level coroutine referenced by persisted APScheduler jobs."""
+async def run_scheduled_task(scheduler_id: str, description: str, cron: str = "") -> None:
+    """Top-level coroutine referenced by persisted APScheduler jobs.
+
+    `cron` is accepted as a positional arg so the original crontab string
+    survives pickle/restart and can be displayed in the UI without hand
+    reconstruction. It is not used for execution itself.
+    """
     runner = _RUNNERS.get(scheduler_id)
     log_entries = _LOG.setdefault(scheduler_id, [])
     log_entries.append(
@@ -111,7 +116,7 @@ class Scheduler:
         job = self._scheduler.add_job(
             run_scheduled_task,
             trigger=trigger,
-            args=[self.id, description],
+            args=[self.id, description, cron],
             id=job_id,
             replace_existing=True,
         )
@@ -128,7 +133,7 @@ class Scheduler:
         out: list[ScheduledJob] = []
         for job in self._scheduler.get_jobs():
             description = job.args[1] if len(job.args) > 1 else ""
-            cron = _cron_of(job)
+            cron = job.args[2] if len(job.args) > 2 else _cron_of(job)
             out.append(self._to_scheduled(job, description, cron))
         return out
 
@@ -147,12 +152,20 @@ class Scheduler:
 
 
 def _cron_of(job: Any) -> str:
+    """Reconstruct a 5-field crontab string from an APScheduler CronTrigger by
+    field name (older job rows from before we stored the cron in args)."""
     trig = getattr(job, "trigger", None)
     if trig is None:
         return ""
-    fields = getattr(trig, "fields", None) or []
-    parts = [str(f) for f in fields[-5:]]
-    return " ".join(parts) or str(trig)
+    by_name = {f.name: str(f) for f in getattr(trig, "fields", [])}
+    parts = [
+        by_name.get("minute", "*"),
+        by_name.get("hour", "*"),
+        by_name.get("day", "*"),
+        by_name.get("month", "*"),
+        by_name.get("day_of_week", "*"),
+    ]
+    return " ".join(parts)
 
 
 async def default_task_runner(description: str) -> None:
