@@ -24,6 +24,7 @@ export type AgentEvent =
 
 export type OutgoingMessage =
   | { type: "chat"; text: string }
+  | { type: "stop" }
   | { type: "permission_response"; id: string; decision: string }
   | { type: "ping" };
 

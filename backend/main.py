@@ -45,6 +45,39 @@ class HubState:
         self._pending_permissions: dict[str, asyncio.Future] = {}
         self._ws_clients: set[WebSocket] = set()
         self._selected_model: str | None = None
+        self._current_task: asyncio.Task | None = None
+        self._current_shell_pids: list[int] = []
+
+    def set_current_task(self, task: asyncio.Task | None) -> None:
+        self._current_task = task
+
+    def get_shell_pids(self) -> list[int]:
+        return self._current_shell_pids
+
+    def clear_shell_pids(self) -> None:
+        self._current_shell_pids = []
+
+    def add_shell_pid(self, pid: int) -> None:
+        self._current_shell_pids.append(pid)
+
+    async def stop_current(self) -> None:
+        """Cancel the current agent task and kill any running shell processes."""
+        # Kill shell PIDs
+        for pid in self._current_shell_pids:
+            try:
+                import os
+                os.kill(pid, 9)  # SIGKILL
+            except Exception:
+                pass
+        self._current_shell_pids = []
+        # Cancel the agent task
+        if self._current_task and not self._current_task.done():
+            self._current_task.cancel()
+            try:
+                await self._current_task
+            except asyncio.CancelledError:
+                pass
+        self._current_task = None
 
     # ------------------------------------------------------------ WS broker
     async def register_ws(self, ws: WebSocket) -> None:
@@ -263,8 +296,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 except Exception as exc:
                     await websocket.send_json({"type": "error", "error": str(exc)})
                     continue
-                async for event in agent.run_stream(user_text):
-                    await websocket.send_json(event)
+
+                async def _run():
+                    async for event in agent.run_stream(user_text):
+                        await websocket.send_json(event)
+
+                task = asyncio.create_task(_run())
+                hub.set_current_task(task)
+                await task
 
             elif mtype == "permission_response":
                 rid = message.get("id") or ""
@@ -274,7 +313,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     {"type": "permission_resolved", "id": rid, "ok": ok}
                 )
 
-            elif mtype == "ping":
+            elif mtype == "stop":
+                await hub.stop_current()
+                await websocket.send_json({"type": "final", "text": "[stopped by user]"})
                 await websocket.send_json({"type": "pong"})
 
             else:

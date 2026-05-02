@@ -18,7 +18,8 @@ type ChatItem =
       action: string;
       description: string;
       resolved?: string;
-    };
+    }
+  | { kind: "error"; text: string; id: string };
 
 export interface ChatProps {
   socket: AgentSocket;
@@ -29,15 +30,19 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const assistantBufRef = useRef<string>("");
   const currentAssistantId = useRef<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const off = socket.on((ev: AgentEvent) => handleEvent(ev));
+    const off = socket.on((ev: AgentEvent) => {
+      handleEvent(ev);
+    });
     return () => {
       off();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
 
   const handleEvent = (ev: AgentEvent) => {
@@ -73,7 +78,6 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
       ]);
     } else if (ev.type === "tool_result") {
       setItems((items) => {
-        // attach output to the most recent tool call with this name
         for (let i = items.length - 1; i >= 0; i--) {
           const it = items[i];
           if (it.kind === "tool" && it.tool === ev.tool && !it.output) {
@@ -99,16 +103,17 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
       setItems((items) =>
         items.map((it) =>
           it.kind === "permission" && it.id === ev.id
-            ? { ...it, resolved: "resolved" }
+            ? { ...it, resolved: ev.ok ? "approved" : "denied" }
             : it,
         ),
       );
     } else if (ev.type === "error") {
       setBusy(false);
       const id = crypto.randomUUID();
+      setDebugLogs((logs) => [...logs, ev.error]);
       setItems((items) => [
         ...items,
-        { kind: "assistant", text: `[error] ${ev.error}`, id },
+        { kind: "error", text: ev.error, id },
       ]);
     }
   };
@@ -124,6 +129,11 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
     currentAssistantId.current = null;
   };
 
+  const stop = () => {
+    socket.send({ type: "stop" });
+    setBusy(false);
+  };
+
   const respondPermission = (id: string, decision: string) => {
     socket.send({ type: "permission_response", id, decision });
     setItems((items) =>
@@ -135,27 +145,44 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
     );
   };
 
+  const copyDebug = () => {
+    navigator.clipboard.writeText(debugLogs.join("\n"));
+  };
+
   return (
-    <div className="flex flex-col h-full" data-testid="chat">
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+    <div className="flex flex-col h-full">
+      {/* Chat history - scrollable */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3" ref={bottomRef}>
         {items.map((it) => (
           <ChatCard key={it.id} item={it} onPermission={respondPermission} />
         ))}
-        {busy && <div className="text-slate-400 text-sm italic">thinking…</div>}
       </div>
-      <div className="border-t border-slate-800 p-3 space-y-2">
-        {!hasModel && (
-          <div
-            className="text-xs text-amber-300 bg-amber-900/20 border border-amber-700 rounded-md px-2 py-1"
-            data-testid="no-model-hint"
+
+      {/* Debug bar */}
+      {debugOpen && (
+        <div className="bg-red-900/90 text-red-100 text-xs p-2 flex items-start gap-2 max-h-32 overflow-y-auto">
+          <button
+            className="flex-shrink-0 bg-red-700 hover:bg-red-600 rounded px-2 py-1 text-xs"
+            onClick={copyDebug}
+            title="Copy all debug output"
           >
+            Copy
+          </button>
+          <pre className="whitespace-pre-wrap flex-1">{debugLogs.join("\n")}</pre>
+        </div>
+      )}
+
+      {/* Input area */}
+      <div className="border-t border-slate-800 p-3 pb-2 space-y-2">
+        {!hasModel && (
+          <div className="text-xs text-amber-300 bg-amber-900/20 border border-amber-700 rounded-md px-2 py-1">
             Pick a model in the top bar before sending a message.
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-end">
           <textarea
             className="flex-1 bg-slate-900 rounded-md p-2 text-sm text-slate-100 outline-none border border-slate-800 focus:border-sky-600 resize-none"
-            rows={2}
+            rows={3}
             placeholder="Ask OpenCowork… (Enter to send, Shift+Enter for newline)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -167,14 +194,33 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
             }}
             data-testid="chat-input"
           />
-          <button
-            className="bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 text-sm disabled:opacity-50"
-            onClick={send}
-            disabled={busy || !input.trim()}
-            data-testid="send-btn"
-          >
-            Send
-          </button>
+          <div className="flex flex-col gap-1">
+            {busy ? (
+              <button
+                className="bg-red-600 hover:bg-red-500 text-white rounded-md px-3 py-2 text-sm h-1/2"
+                onClick={stop}
+                data-testid="stop-btn"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                className="bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 py-2 text-sm h-1/2 disabled:opacity-50"
+                onClick={send}
+                disabled={!input.trim()}
+                data-testid="send-btn"
+              >
+                Send
+              </button>
+            )}
+            <button
+              className="text-slate-500 hover:text-slate-300 h-1/4 text-xs"
+              onClick={() => setDebugOpen((o) => !o)}
+              title="Toggle debug bar"
+            >
+              ⚙
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -207,7 +253,30 @@ function ChatCard({
     );
   }
   if (item.kind === "tool") {
-    return <ToolCard item={item} />;
+    return (
+      <div className="border border-slate-700 rounded-xl bg-slate-900/60 text-xs">
+        <div className="px-3 py-2">
+          <span className="font-semibold text-sky-300">{item.tool}</span>
+          <pre className="mt-1 bg-slate-950 rounded p-2 overflow-x-auto text-slate-300">
+            {JSON.stringify(item.input, null, 2)}
+          </pre>
+        </div>
+        {item.output && (
+          <div className="px-3 pb-3">
+            <pre className="bg-slate-950 rounded p-2 overflow-x-auto text-slate-300">
+              {JSON.stringify(item.output, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (item.kind === "error") {
+    return (
+      <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-200">
+        {item.text}
+      </div>
+    );
   }
   // permission
   const resolved = item.resolved;
@@ -222,56 +291,19 @@ function ChatCard({
       <div className="text-amber-100/70 mt-1">{item.description}</div>
       {!resolved ? (
         <div className="flex flex-wrap gap-2 mt-2">
-          {(["approve", "deny", "approve-always", "deny-always"] as const).map(
-            (d) => (
-              <button
-                key={d}
-                className="text-xs bg-slate-800 hover:bg-slate-700 rounded-md px-2 py-1"
-                onClick={() => onPermission(item.id, d)}
-              >
-                {d}
-              </button>
-            ),
-          )}
+          {(["this time", "always", "no", "never"] as const).map((d) => (
+            <button
+              key={d}
+              className="text-xs bg-slate-800 hover:bg-slate-700 rounded-md px-2 py-1"
+              onClick={() => onPermission(item.id, d)}
+            >
+              {d}
+            </button>
+          ))}
         </div>
       ) : (
         <div className="text-xs text-amber-200 mt-2">
           Resolved: <span className="font-mono">{resolved}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolCard({
-  item,
-}: {
-  item: Extract<ChatItem, { kind: "tool" }>;
-}) {
-  const [open, setOpen] = useState(false);
-  const preview = useMemo(() => JSON.stringify(item.input), [item.input]);
-  return (
-    <div className="border border-slate-700 rounded-xl bg-slate-900/60 text-xs">
-      <button
-        className="w-full text-left px-3 py-2 flex justify-between items-center"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="font-semibold text-sky-300">
-          {item.tool}
-          <span className="text-slate-400 ml-2">{preview}</span>
-        </span>
-        <span>{open ? "−" : "+"}</span>
-      </button>
-      {open && (
-        <div className="px-3 pb-3 space-y-2">
-          <pre className="bg-slate-950 rounded p-2 overflow-x-auto">
-            {JSON.stringify(item.input, null, 2)}
-          </pre>
-          {item.output && (
-            <pre className="bg-slate-950 rounded p-2 overflow-x-auto">
-              {JSON.stringify(item.output, null, 2)}
-            </pre>
-          )}
         </div>
       )}
     </div>
