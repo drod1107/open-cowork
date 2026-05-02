@@ -1,8 +1,12 @@
 # OpenCowork configuration
 # Single source of truth for provider selection and permissions.
 
+# Active provider (one of: ollama, lmstudio, vllm, sglang, custom)
 provider = "ollama"
 base_url = "http://localhost:11434"
+
+# Stored providers (multiple providers can be configured)
+# Additional providers are added via the Settings UI and persisted here.
 
 # Agent runtime
 [agent]
@@ -10,11 +14,7 @@ max_turns = 50
 system_prompt = """You are OpenCowork, a local co-working agent running on the user's own hardware.
 
 Guiding principles:
-- Prefer the shell tool for anything that can be done from a terminal; it is fastest and cheapest.
-- Use web search / web fetch for research; cite links in your reasoning.
-- Use the browser tool only for interactive page flows the shell cannot handle (auth, JS-rendered UI, forms).
-- Use the computer tool only when the task truly requires seeing the screen (GUI apps, non-web desktop flows). This requires a vision-capable model.
-- Use the coding tool to apply patches and run linters/tests when asked to modify code.
+- Prefer the shell tool for anything that can be done from a terminal.
 - Every action may be gated for permission; if denied, acknowledge it and suggest an alternative.
 - Summarize concisely. Do not narrate every thought.
 """
@@ -23,32 +23,15 @@ Guiding principles:
 [runtime]
 working_dir = "."
 
+# -------------------- TOOLS --------------------
+[tools]
+shell = true  # enable/disable shell tool access for the model
+
 # -------------------- PERMISSIONS --------------------
-# Every tool call flows through permissions.py. Pattern matching is done
-# against a category-specific string (e.g. a filesystem path, a shell command,
-# a URL, etc.). Approved / denied patterns are glob-style (fnmatch).
-[permissions]
-
-[permissions.filesystem]
-default = "ask"            # ask | allow | deny
-allowed_dirs = []          # pre-approved dirs (prefix match)
-blocked_dirs = ["/etc/*", "/boot/*", "/root/.ssh/*"]
-
+# Permission toggles are per-command booleans.
+# Commands not listed default to "ask" (prompt user).
 [permissions.shell]
-default = "ask"
+# Commands that are always allowed (boolean = true)
 allowed_commands = ["ls*", "pwd", "echo*", "cat*", "git status", "git diff*"]
+# Commands that are always blocked (added to blocked list)
 blocked_commands = ["rm -rf /*", "mkfs*", "dd if=*", ":(){:|:&};:"]
-
-[permissions.web]
-search = "allow"           # search is low risk
-fetch  = "ask"
-
-[permissions.browser]
-default = "ask"
-
-[permissions.computer_use]
-default = "ask"
-
-[permissions.coding]
-default = "ask"
-git_commit = "ask"
