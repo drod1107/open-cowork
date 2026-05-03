@@ -711,3 +711,120 @@ async def stop_current(self) -> None:
 
 ---
 
+### QA Bug Analysis: Stop Button Didn't Kill Ping (2026-05-03)
+
+**Bug Report from PM (David):**
+- Stop button didn't stop all processes started by agent
+- `ping 8.8.8.8` survived the UAT for stop feature
+- Means there's at least one edge case the stop button tests don't cover
+
+**Root Cause Analysis (from dev server logs + code review):**
+
+1. **`shell.py:60-65`** - `run_shell()` creates subprocess via:
+   ```python
+   proc = await asyncio.create_subprocess_shell(command, stdout=..., stderr=...)
+   # BUG: Missing: hub.add_shell_pid(proc.pid)
+   ```
+
+2. **`main.py:74-79`** - `stop_current()` iterates `self._current_shell_pids`:
+   ```python
+   for pid in self._current_shell_pids:
+       os.kill(pid, 9)  # SIGKILL
+   self._current_shell_pids = []
+   ```
+   **Problem:** If `shell.py` never adds PID to `hub._current_shell_pids`, the loop iterates over an EMPTY list.
+
+3. **Why ping survived:** `shell.py` spawns the process but **NEVER tracks it** in `hub._current_shell_pids`. Stop button has nothing to kill.
+
+**Test Gap:**
+- `test_stop_kills_shell_pids` mocks the PIDs (assumes they're tracked)
+- **Never tests the REAL flow:** `shell.py` → `asyncio.create_subprocess_shell()` → `hub.add_shell_pid(proc.pid)`
+- **Missing test:** Verify that `run_shell()` actually adds PID to hub
+
+**Dev Team Action Required:**
+1. **Fix `shell.py`** to capture PID and add to hub:
+   ```python
+   # In shell.py, after line 60:
+   proc = await asyncio.create_subprocess_shell(...)
+   # Need access to hub instance:
+   # Option A: Pass hub to run_shell()
+   # Option B: Use a global or module-level hub reference
+   # Option C: Return PID from run_shell(), let caller (agent.py) add it
+   ```
+
+2. **Update `test_shell.py`** to verify PID tracking:
+   ```python
+   async def test_shell_command_tracked_in_hub():
+       """Verify run_shell() adds PID to hub._current_shell_pids."""
+       # This test should FAIL until shell.py is fixed
+       pass  # Placeholder
+   ```
+
+**QA Test Status:**
+- `test_stop_kills_shell_pids` - **FAILS** (expects SIGTERM-first, dev only does SIGKILL)
+- `test_stop_kills_subprocesses_spawned_by_shell` - **PASSES** (documents gap, doesn't fail)
+- **Missing:** Test that actually verifies `shell.py` tracks PIDs
+
+**Edge Cases Not Covered:**
+1. Subprocess spawned but PID not tracked (the ping bug)
+2. Multiple subprocesses from one agent invocation
+3. Subprocess that spawns its own children (process tree)
+4. SIGTERM doesn't kill it, SIGKILL needed (current test expects this, dev hasn't implemented)
+
+---
+
+### QA Test Suite Audit (2026-05-03)
+
+**Backend Tests:**
+| File | Tests | Clarity | Self-Documenting | Notes |
+|------|-------|---------|-------------------|-------|
+| `test_config.py` | 6 | ✅ Good | ✅ Yes | Clear names, comments explain MVP structure |
+| `test_nvidia_integration.py` | 4 | ✅ Good | ✅ Yes | Tests credentials, consent flow |
+| `test_permissions.py` | 5 | ✅ Good | ✅ Yes | Updated for MVP (removed web category) |
+| `test_providers.py` | 6 | ⚠️ OK | ✅ Yes | Could use more comments on provider types |
+| `test_shell.py` | 3 | ✅ Good | ⚠️ Some | `test_runs_allowed_command` - what's being tested? |
+| `test_stop_killswitch.py` | 3 | ⚠️ Needs work | ❌ No | **FAILS** (expects SIGTERM-first). Names OK but no comments explaining the 4 kill calls |
+| `test_tool_toggle.py` | 2 | ✅ Good | ✅ Yes | Clear: enabled allows, disabled blocks |
+| `test_websocket_chat.py` | 5 | ✅ Good | ✅ Yes | WebSocket tests, all passing with BE live |
+| `test_ollama_autostart.py` | 2 | ⚠️ OK | ❌ No | **FAILS** (feature not implemented). No comments explaining what's being tested |
+| `test_port_fallback.py` | 2 | ⚠️ OK | ❌ No | **FAILS** (feature not implemented). No comments explaining port scanning logic |
+
+**Frontend Tests:**
+| File | Tests | Clarity | Self-Documenting | Notes |
+|------|-------|---------|-------------------|-------|
+| `App.integration.test.tsx` | 16 | ✅ Good | ✅ Yes | Tests 3-tab layout, model picker, chat flow |
+| `Chat.test.tsx` | ? | ✅ Good | ✅ Yes | Permission options, debug bar, send button |
+| `History.test.tsx` | 5 | ✅ Good | ✅ Yes | Session list, select, delete |
+| `HistoryFlow.test.tsx` | 3 | ✅ Good | ✅ Yes | **NEW** - Resume flow, switch sessions |
+| `ModelPicker.test.tsx` | ? | ✅ Good | ✅ Yes | Provider picker, ping states |
+| `ws.test.tsx` | 4 | ✅ Good | ✅ Yes | WebSocket message types |
+
+**Files Needing Improvement:**
+1. **`test_stop_killswitch.py`** - Add comments explaining:
+   - Why 4 kill calls? (2 PIDs × 2 signals = SIGTERM + SIGKILL)
+   - What's the BUG? (dev only does SIGKILL, test expects SIGTERM-first)
+   - Add test for `shell.py` PID tracking
+
+2. **`test_ollama_autostart.py`** - Add comments:
+   - What is being tested? (binary detection, port check, subprocess start)
+   - Why does it fail? (feature not in `run()` yet)
+   - What should dev implement?
+
+3. **`test_port_fallback.py`** - Add comments:
+   - What is port fallback? (scan from 7337 upward)
+   - Why does it fail? (`run()` doesn't have scanning logic)
+   - What should dev implement?
+
+**Naming Conventions Check:**
+- ✅ Backend: `test_<feature>.py` (consistent)
+- ✅ Frontend: `<Component>.test.tsx` (consistent)
+- ✅ All names are descriptive (not `test1.py` or `foo.test.tsx`)
+
+**Action Items for QA:**
+1. Add comments to `test_stop_killswitch.py` explaining the 4 kill calls
+2. Add comments to `test_ollama_autostart.py` and `test_port_fallback.py`
+3. Add test for `shell.py` PID tracking (the real bug from UAT)
+4. Consider renaming `test_stop_kills_subprocesses_spawned_by_shell` to something clearer
+
+---
+
