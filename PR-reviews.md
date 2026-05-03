@@ -820,6 +820,92 @@ Commit `ed544d0` ("Fix stop button: PID tracking, CancelledError handling, SIGTE
 
 ---
 
+### Context Awareness Test Suite Review (2026-05-03)
+
+**Source:** Dev-Plan.md:321-471 (Context Awareness System design)
+
+**Test File:** `backend/tests/test_context_awareness.py` (14 tests)
+
+**Dev Team Implementation Status:**
+
+| Feature | Dev-Plan.md Lines | Status | Tests |
+|---------|-------------------|--------|-------|
+| History Injection | 342-355 | ✅ **IMPLEMENTED** | 6 PASS |
+| num_ctx Maximization | 393-402 | ✅ **IMPLEMENTED** | 3 PASS |
+| Tool Result Spillover | 356-366 | ❌ **NOT IMPLEMENTED** | 1 FAIL, 1 SKIP |
+| read_chunk Tool | 364, 433-434 | ✅ **IMPLEMENTED** | 1 PASS |
+| Context Compaction | 368-391 | ❌ **NOT IMPLEMENTED** | 2 SKIP |
+| Smart Token Budgeting | 404-416 | ✅ **PARTIALLY** (estimator only) | 2 PASS |
+
+**Test Results (14 total):**
+- ✅ **12 PASSED** (history injection, num_ctx, read_chunk, token estimator, config)
+- ❌ **1 FAILED** (`test_shell_output_spills_over_when_exceeding_threshold`)
+- ⏸ **3 SKIPPED** (compaction, spillover inline test)
+
+**Critical Finding:**
+
+1. ✅ **History Injection - PASSING** — Dev team implemented:
+   - `_build_history()` in `main.py` (loads session, converts to OpenAI format)
+   - `history` parameter in `Agent.run_stream()` (prepends before current message)
+   - WebSocket handler injects history via `_build_history()`
+   - **This was the critical missing piece** — agent now has memory across messages!
+
+2. ✅ **num_ctx Maximization - PASSING** — Dev team implemented:
+   - `num_ctx` attribute on `Agent` (default 8192)
+   - `_is_ollama()` heuristic (checks for "11434" or "localhost" in base_url)
+   - Passes `extra_body={"options": {"num_ctx": N}}` for Ollama only
+
+3. ✅ **read_chunk Tool - PASSING** — Dev team implemented:
+   - `backend/tools/spillover.py` (write_spillover, read_spillover, format_reference, maybe_spillover)
+   - `read_chunk` tool in registry (pagination: file_id, offset, limit)
+
+4. ❌ **Tool Result Spillover - FAILING** — Dev team has `spillover.py` but:
+   - **`shell.py` does NOT call `maybe_spillover()`** to check threshold
+   - `test_shell_output_spills_over_when_exceeding_threshold` FAILS because stdout contains full 5KB output (not reference)
+   - **Action Required:** In `shell.py`, after `proc.communicate()`, check if output exceeds threshold:
+     ```python
+     stdout = stdout_b.decode(errors="replace")
+     stdout = maybe_spillover(stdout, prefix="shell")
+     ```
+
+5. ❌ **Context Compaction - NOT IMPLEMENTED** — Tests SKIPPED:
+   - No compaction logic in `main.py` or `agent.py`
+   - No token budget checking before LLM calls
+   - **Action Required:** Implement compaction trigger (75% of num_ctx), summary generation
+
+6. ✅ **Smart Token Budgeting - PARTIALLY** — `spillover.py` has `maybe_spillover()` but:
+   - `_estimate_tokens()` exists in `agent.py` (len(content)//4 heuristic)
+   - No proactive budget checking before LLM calls
+
+**Lessons Learned Applied:**
+1. ✅ Tests FAIL until feature is implemented (TDD) — spillover test correctly FAILS
+2. ✅ Comments explain WHY we're testing (reference Dev-Plan.md lines)
+3. ✅ Test REAL flows — `run_stream()` captures actual messages sent to LLM
+4. ✅ Specific test names and edge cases (empty history, invalid session, Ollama-only num_ctx)
+5. ✅ Fixed mock issues (capturing message copies, not modified references)
+
+**Dev Team Next Steps:**
+1. **Fix `shell.py`** to call `maybe_spillover()` for large outputs (test will PASS)
+2. **Implement compaction** logic in `main.py` (unskip tests)
+3. **Add proactive token budget checking** before LLM calls
+
+**QA Verdict:** 
+- ✅ History injection (critical path) — **PASS** (6/6 tests)
+- ✅ num_ctx maximization — **PASS** (3/3 tests)
+- ✅ read_chunk tool — **PASS** (1/1 tests)
+- ❌ Spillover — **FAIL** (0/1 tests, shell.py not integrated)
+- ❌ Compaction — **NOT IMPLEMENTED** (0/2 tests, skipped)
+
+**Final Recommendation:**
+1. **URGENT:** Integrate `spillover.maybe_spillover()` into `shell.py` (1 line fix, test will PASS)
+2. **Next:** Implement compaction logic in `main.py` (unskip 2 tests)
+3. **Future:** Add proactive token budget checking before LLM calls
+
+**Context Awareness Status: 85% Complete** (12/14 tests passing)
+**Blocking Issue:** Spillover integration (dev team has `spillover.py` but not wired to `shell.py`)
+
+---
+
 ### Context Awareness Test Suite (2026-05-03)
 
 **Source:** Dev-Plan.md:321-471 (Context Awareness System design)
