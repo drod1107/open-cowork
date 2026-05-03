@@ -318,6 +318,139 @@ Future: Extend to support "ask/allow/deny" modes, pattern matching (fnmatch), pe
 
 ---
 
+## Context Awareness System (Agent Memory)
+
+### Problem
+
+The agent has **zero memory** across messages. Every call to `agent.run_stream()` builds the message list from scratch with only the system prompt and the current user message. Session history is faithfully stored in SQLite but never read back. The model itself confirmed this in UAT: *"I do not have memory of previous messages or interactions. Each message is processed independently."*
+
+### Architecture: Virtual Memory for LLMs
+
+The design follows the same principles as a virtual memory system:
+
+| Concept | OS Analogy | Our Implementation |
+|---------|-----------|-------------------|
+| Context window | RAM | The model's `num_ctx` token limit (limited, fast) |
+| Spillover storage | Disk | SQLite records or temp files for large tool output |
+| Compaction | Garbage collection | Summarize old turns into a compact summary message |
+| Paging | Page fault → disk read | `read_chunk` tool lets the model page through saved output on demand |
+
+**Core principle: never truncate, never lose data.** If a tool result is the length of War and Peace, it gets saved as a "book" — not read verbatim into context. The model reads it one chapter at a time, distilling understanding as it goes, without ever overwhelming context.
+
+### Components
+
+#### 1. History Injection (Critical Path)
+
+**Current:** `agent.run_stream(user_message)` sends only `[system, user_message]` to the LLM.
+
+**Fix:** Load session history from SQLite before each call. Convert stored messages to OpenAI format. Prepend to the messages list:
+
+```
+[system_prompt, ...history_messages, current_user_message]
+```
+
+- `_build_history(session_id)` — new function in `main.py` that calls `get_session()`, converts stored messages to OpenAI `messages` format
+- `Agent.run_stream()` — accept optional `history: list[dict]` parameter, prepend before current message
+- Tool-call/result pairs must be reconstructed in OpenAI format (`assistant` with `tool_calls` → `tool` role with `tool_call_id`)
+
+#### 2. Tool Result Spillover (No Truncation)
+
+**Current:** Shell output is stuffed directly into the tool result message. A `find /` could blow the entire context window.
+
+**Fix:** When tool output exceeds a configurable threshold (default 4KB), write it to a spillover record and store a reference instead:
+
+- In context: `[Shell output: 47KB, saved to spillover abc123. Use read_chunk to access.]`
+- On disk: `backend/db/spillover/abc123.txt` (or a `spillover` SQLite table)
+- The `read_chunk(file_id, offset, limit)` tool lets the model page through the output in manageable pieces
+- System prompt tells the agent: *"When you see [Output saved as spillover abc123, 47KB], use read_chunk to read it in pieces. Read, understand, summarize, then read the next chunk."*
+- Spillover files are cleaned up when the session is deleted or after a configurable TTL
+
+#### 3. Context Compaction (Garbage Collection)
+
+**Current:** No limit on context size. Long conversations will exceed the model's window and fail.
+
+**Fix:** When the message history exceeds a token budget (default 75% of `num_ctx`), compact the oldest messages:
+
+1. Take all messages before the last N turns (keep recent context intact)
+2. Send them to a compactor call (same model, or configurable smaller/faster model)
+3. Replace those messages with a single system message: `[Previous conversation summary: <summary>]`
+4. The session DB retains the ORIGINAL messages — compaction is a runtime optimization, not data destruction
+5. Compaction runs proactively before each LLM call when budget is exceeded
+6. Tool-call/result pairs are always kept together in the compaction boundary
+
+**Compaction trigger flow:**
+```
+User sends message
+  → Load full history from session
+  → Estimate token count (len(text) / 4 heuristic, or tiktoken if available)
+  → If tokens > budget:
+      → Extract old messages (everything before last 2 turns)
+      → LLM call: "Summarize this conversation so far, preserving key facts, decisions, and tool results"
+      → Replace old messages with summary
+  → Run agent with compacted context
+```
+
+#### 4. num_ctx Maximization
+
+**Current:** Ollama uses its default `num_ctx` (often 2048-4096 tokens). Models can handle much more.
+
+**Fix:** 
+- Set `num_ctx` to a configurable value (default 8192 for 8B models, 32768 for larger)
+- Pass via `extra_body={"options": {"num_ctx": N}}` in the OpenAI client call (Ollama /v1 endpoint)
+- Only applied for Ollama provider (other providers manage their own context)
+- Add `context_window` setting to `config.toml` under `[agent]`
+- The value should be set to the model's maximum supported context, not a conservative default
+
+#### 5. Smart Token Budgeting
+
+**Current:** No concept of token budgets at all.
+
+**Fix:**
+- `agent.max_context_tokens` — configurable, default from config
+- `_estimate_tokens(messages)` — rough count: sum of `len(content) / 4` for all messages
+- Budget allocation:
+  - System prompt: ~10% of window
+  - Compaction summary: ~10% 
+  - Recent turns (last 2-3): ~30%
+  - Tool results + current message: ~50%
+- If any single tool result would exceed the remaining budget → spillover
+
+### Config.toml Additions
+
+```toml
+[agent]
+context_window = 8192          # num_ctx for Ollama, ignored for other providers
+compaction_threshold = 0.75    # compact when 75% of context_window is used
+spillover_threshold = 4096     # bytes; tool outputs larger than this go to spillover
+spillover_ttl_hours = 24       # clean up spillover files after this long
+```
+
+### Implementation Order
+
+1. **History injection** — The critical missing piece. Without this, the agent is useless for any multi-turn conversation. Load session messages → pass to agent → model has context.
+2. **num_ctx maximization** — Must be set high enough to actually hold the history we're now injecting. These two are co-dependent.
+3. **Tool result spillover** — Once we have history injection, long tool outputs become a problem. Spillover prevents context overflow from large outputs.
+4. **read_chunk tool** — The model needs a way to access spillover data. New tool that reads a chunk of a saved output.
+5. **Context compaction** — The final piece. Long conversations will eventually exceed even a large context window. Compaction keeps things manageable indefinitely.
+6. **Smart token budgeting** — Refinement of the compaction trigger. More precise budget allocation.
+
+### Design Decisions
+
+- **Session DB stores originals, compaction is runtime-only** — Never destroy the raw conversation data. Compaction is an optimization for the LLM call, not a modification of the source of truth.
+- **Spillover is opt-in per tool result** — Only outputs exceeding the threshold get spilled. Small outputs stay inline in context where they're immediately available.
+- **Compaction preserves tool pairs** — Never split a tool_call from its tool_result. If the boundary falls in the middle of a tool interaction, expand the compaction region to include the complete pair.
+- **read_chunk is a real tool** — The model decides when to use it, just like shell. It appears in the tool list alongside shell. The model can read multiple chunks sequentially, building understanding incrementally.
+- **No summarization of spillover content** — The model reads the raw data. If it wants a summary, it can write one itself using the shell tool or in its response. We don't auto-summarize because we can't know which details matter.
+
+### Out of Scope for This Feature
+
+- RAG/vector embeddings for context retrieval
+- Multi-model compaction (using a smaller model to summarize)
+- Semantic search across session history
+- Cross-session context sharing
+
+---
+
 ## Change Log
 
 - [2026-05-02] Established MVP design via conversation with user (all decisions logged in MVP_DESIGN.md)
@@ -335,3 +468,4 @@ Future: Extend to support "ask/allow/deny" modes, pattern matching (fnmatch), pe
 - [2026-05-02] Popup flow: "No local providers detected. Connect to NVIDIA API? [Yes] [No]"
 - [2026-05-02] "No" = never ping NVIDIA unless user manually selects it from dropdown
 - [2026-05-02] Updated all relevant sections: MVP Scope, UI Design, Backend Architecture, Test Checklist
+- [2026-05-03] Added Context Awareness System design (history injection, spillover, compaction, num_ctx, read_chunk)
