@@ -18,12 +18,14 @@ export type AgentEvent =
   | { type: "scheduler_end"; description: string }
   | { type: "scheduler_error"; error: string }
   | { type: "error"; error: string }
+  | { type: "session_id"; session_id: string }
+  | { type: "session_title"; session_id: string; title: string }
   | { type: "pong" }
   | { type: "open" }
   | { type: "close" };
 
 export type OutgoingMessage =
-  | { type: "chat"; text: string }
+  | { type: "chat"; text: string; session_id?: string }
   | { type: "stop" }
   | { type: "permission_response"; id: string; decision: string }
   | { type: "ping" };

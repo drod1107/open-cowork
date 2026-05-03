@@ -4,14 +4,24 @@ import HistoryTab from "./components/HistoryTab";
 import Permissions from "./components/Permissions";
 import ModelPicker from "./components/ModelPicker";
 import { AgentSocket } from "./lib/ws";
+import { api } from "./lib/api";
 
 type Tab = "chat" | "history" | "settings";
+
+type LoadedSession = {
+  id: string;
+  messages: Array<{ role: string; content: string }>;
+  metadata: { title?: string };
+};
 
 export default function App() {
   const socket = useMemo(() => new AgentSocket(), []);
   const [tab, setTab] = useState<Tab>("chat");
   const [connected, setConnected] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [loadedSession, setLoadedSession] = useState<LoadedSession | null>(null);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
 
   useEffect(() => {
     const off = socket.on((ev) => {
@@ -24,6 +34,46 @@ export default function App() {
       socket.disconnect();
     };
   }, [socket]);
+
+  const handleSessionId = (id: string) => {
+    setActiveSessionId(id);
+  };
+
+  const handleSessionTitle = (_id: string, _title: string) => {
+    setHistoryRefreshKey((k) => k + 1);
+  };
+
+  const handleHistorySelect = async (id: string) => {
+    try {
+      const session = await api.getSession(id);
+      setLoadedSession(session as unknown as LoadedSession);
+      setActiveSessionId(id);
+      setTab("chat");
+    } catch {
+      setTab("chat");
+    }
+  };
+
+  const handleHistoryDelete = async (id: string) => {
+    try {
+      await api.deleteSession(id);
+      if (activeSessionId === id) {
+        setActiveSessionId(null);
+        setLoadedSession(null);
+      }
+      setHistoryRefreshKey((k) => k + 1);
+    } catch {
+      // ignore
+    }
+  };
+
+  const chatItems = loadedSession
+    ? loadedSession.messages.map((m, i) => ({
+        kind: m.role === "user" ? ("user" as const) : ("assistant" as const),
+        text: m.content,
+        id: `loaded-${i}`,
+      }))
+    : undefined;
 
   return (
     <div className="h-full flex flex-col">
@@ -47,15 +97,8 @@ export default function App() {
 
       {/* Main content area - scrollable */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {tab === "chat" && <Chat socket={socket} hasModel={!!selectedModel} />}
-        {tab === "history" && <HistoryTab onSelect={(id) => {
-          // Switch to chat tab and load session
-          setTab("chat");
-          // TODO: Load session history
-        }} onDelete={(id) => {
-          // TODO: Call API to delete session
-          console.log("Delete session", id);
-        }} />}
+    {tab === "chat" && <Chat socket={socket} hasModel={!!selectedModel} sessionId={activeSessionId} onSessionId={handleSessionId} onSessionTitle={handleSessionTitle} loadedItems={chatItems} />}
+    {tab === "history" && <HistoryTab onSelect={handleHistorySelect} onDelete={handleHistoryDelete} refreshKey={historyRefreshKey} />}
         {tab === "settings" && <Permissions />}
       </div>
 

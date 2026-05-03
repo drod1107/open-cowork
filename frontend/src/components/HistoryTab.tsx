@@ -4,9 +4,10 @@ import { api } from "../lib/api";
 interface HistoryProps {
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  refreshKey?: number;
 }
 
-export default function History({ onSelect, onDelete }: HistoryProps) {
+export default function History({ onSelect, onDelete, refreshKey }: HistoryProps) {
   const [sessions, setSessions] = useState<Array<{
     id: string;
     metadata: { title?: string };
@@ -17,7 +18,7 @@ export default function History({ onSelect, onDelete }: HistoryProps) {
     api.listSessions()
       .then((data) => setSessions(data.sessions || []))
       .catch(() => setSessions([]));
-  }, []);
+  }, [refreshKey]);
 
   const formatDate = (dateStr: string) => {
     try {

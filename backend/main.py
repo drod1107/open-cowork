@@ -29,6 +29,15 @@ from .config_loader import load_config, save_config
 from .permissions import PermissionGate, PermissionRequest
 from .providers import ProviderClient
 from .scheduler import Scheduler
+from .sessions import (
+    init_db as sessions_init_db,
+    create_session,
+    append_message,
+    get_session,
+    list_sessions,
+    delete_session,
+    update_session_metadata,
+)
 from .tools.registry import build_registry
 
 
@@ -167,6 +176,7 @@ async def lifespan(app: FastAPI):
     hub = HubState()
     app.state.hub = hub
     hub.gate.set_prompter(hub.prompt_permission)
+    await sessions_init_db()
 
     # Task runner for scheduled jobs: run a fresh agent and broadcast events.
     async def _task_runner(description: str) -> None:
@@ -280,6 +290,38 @@ async def write_config(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True}
 
 
+# ----------------------------------------------------------------- sessions
+@app.get("/api/sessions")
+async def api_list_sessions() -> dict[str, Any]:
+    sessions = await list_sessions()
+    return {"sessions": sessions}
+
+
+@app.get("/api/sessions/{session_id}")
+async def api_get_session(session_id: str) -> dict[str, Any]:
+    session = await get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    return session
+
+
+@app.patch("/api/sessions/{session_id}")
+async def api_update_session(session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = payload.get("metadata")
+    if metadata is None:
+        raise HTTPException(400, "metadata field required")
+    ok = await update_session_metadata(session_id, metadata)
+    if not ok:
+        raise HTTPException(404, "session not found")
+    return {"ok": True}
+
+
+@app.delete("/api/sessions/{session_id}")
+async def api_delete_session(session_id: str) -> dict[str, Any]:
+    deleted = await delete_session(session_id)
+    return {"deleted": deleted}
+
+
 # -------------------------------------------------------------- WebSocket
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -297,6 +339,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if mtype == "chat":
                 user_text = message.get("text", "")
+                session_id = message.get("session_id")
+
+                if session_id:
+                    await append_message(session_id, "user", user_text)
+                    is_new = False
+                else:
+                    session = await create_session()
+                    session_id = session["id"]
+                    await append_message(session_id, "user", user_text)
+                    await websocket.send_json({"type": "session_id", "session_id": session_id})
+                    is_new = True
+
                 cfg = load_config()
                 working_dir = cfg.get("runtime", {}).get("working_dir", ".")
                 try:
@@ -305,9 +359,23 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     await websocket.send_json({"type": "error", "error": str(exc)})
                     continue
 
+                _sid = session_id
+                _is_new = is_new
+
                 async def _run():
+                    assistant_text = ""
                     async for event in agent.run_stream(user_text):
                         await websocket.send_json(event)
+                        if event.get("type") == "token" and event.get("text"):
+                            assistant_text += event["text"]
+                        elif event.get("type") == "final" and event.get("text"):
+                            assistant_text = event["text"]
+                    if assistant_text:
+                        await append_message(_sid, "assistant", assistant_text)
+                    if _is_new:
+                        title = user_text[:60] + ("…" if len(user_text) > 60 else "")
+                        await update_session_metadata(_sid, {"title": title})
+                        await websocket.send_json({"type": "session_title", "session_id": _sid, "title": title})
 
                 task = asyncio.create_task(_run())
                 hub.set_current_task(task)
