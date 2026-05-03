@@ -71,10 +71,8 @@ class HubState:
 
     async def stop_current(self) -> None:
         """Cancel the current agent task and kill any running shell processes."""
-        # Kill shell PIDs
         for pid in self._current_shell_pids:
             try:
-                import os
                 os.kill(pid, 9)  # SIGKILL
             except Exception:
                 pass

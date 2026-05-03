@@ -95,12 +95,14 @@ export default function App() {
         </header>
       )}
 
-      {/* Main content area - scrollable */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-    {tab === "chat" && <Chat socket={socket} hasModel={!!selectedModel} sessionId={activeSessionId} onSessionId={handleSessionId} onSessionTitle={handleSessionTitle} loadedItems={chatItems} />}
-    {tab === "history" && <HistoryTab onSelect={handleHistorySelect} onDelete={handleHistoryDelete} refreshKey={historyRefreshKey} />}
-        {tab === "settings" && <Permissions />}
+    {/* Main content area - scrollable */}
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className={tab === "chat" ? "h-full" : "hidden"}>
+        <Chat socket={socket} hasModel={!!selectedModel} sessionId={activeSessionId} onSessionId={handleSessionId} onSessionTitle={handleSessionTitle} loadedItems={chatItems} />
       </div>
+      {tab === "history" && <HistoryTab onSelect={handleHistorySelect} onDelete={handleHistoryDelete} refreshKey={historyRefreshKey} />}
+      {tab === "settings" && <Permissions />}
+    </div>
 
       {/* Bottom tab bar - fixed */}
       <nav className="flex border-t border-slate-800 bg-slate-900">

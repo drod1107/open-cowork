@@ -57,17 +57,24 @@ export default function Permissions() {
         <div className="font-semibold">Tools</div>
         <div className="flex justify-between items-center">
           <span>Shell/Bash Tool</span>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={tools.shell !== false}
-              onChange={(e) =>
-                save({ ...cfg, tools: { ...tools, shell: e.target.checked } })
-              }
-              data-testid="tool-shell-toggle"
+          <button
+            role="switch"
+            aria-checked={tools.shell !== false}
+            onClick={() =>
+              save({ ...cfg, tools: { ...tools, shell: tools.shell === false } })
+            }
+            data-testid="tool-shell-toggle"
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              tools.shell !== false ? "bg-sky-600" : "bg-slate-700"
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                tools.shell !== false ? "translate-x-6" : "translate-x-1"
+              }`}
             />
-            <span>{tools.shell !== false ? "Enabled" : "Disabled"}</span>
-          </label>
+          </button>
+          <span className="ml-2">{tools.shell !== false ? "Enabled" : "Disabled"}</span>
         </div>
       </div>
 
