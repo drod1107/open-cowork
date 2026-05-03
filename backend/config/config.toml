@@ -1,37 +1,28 @@
-# OpenCowork configuration
-# Single source of truth for provider selection and permissions.
-
-# Active provider (one of: ollama, lmstudio, vllm, sglang, custom)
 provider = "ollama"
 base_url = "http://localhost:11434"
 
-# Stored providers (multiple providers can be configured)
-# Additional providers are added via the Settings UI and persisted here.
-
-# Agent runtime
 [agent]
 max_turns = 50
-system_prompt = """You are OpenCowork, a local co-working agent running on the user's own hardware.
+system_prompt = "You are OpenCowork, a local co-working agent running on the user's own hardware.\n\nGuiding principles:\n- Prefer the shell tool for anything that can be done from a terminal.\n- Every action may be gated for permission; if denied, acknowledge it and suggest an alternative.\n- Summarize concisely. Do not narrate every thought.\n"
 
-Guiding principles:
-- Prefer the shell tool for anything that can be done from a terminal.
-- Every action may be gated for permission; if denied, acknowledge it and suggest an alternative.
-- Summarize concisely. Do not narrate every thought.
-"""
-
-# Working directory the shell tool will run commands from.
 [runtime]
 working_dir = "."
 
-# -------------------- TOOLS --------------------
 [tools]
-shell = true  # enable/disable shell tool access for the model
+shell = false
 
-# -------------------- PERMISSIONS --------------------
-# Permission toggles are per-command booleans.
-# Commands not listed default to "ask" (prompt user).
 [permissions.shell]
-# Commands that are always allowed (boolean = true)
-allowed_commands = ["ls*", "pwd", "echo*", "cat*", "git status", "git diff*"]
-# Commands that are always blocked (added to blocked list)
-blocked_commands = ["rm -rf /*", "mkfs*", "dd if=*", ":(){:|:&};:"]
+allowed_commands = [
+    "ls*",
+    "pwd",
+    "echo*",
+    "cat*",
+    "git status",
+    "git diff*",
+]
+blocked_commands = [
+    "rm -rf /*",
+    "mkfs*",
+    "dd if=*",
+    ":(){:|:&};:",
+]

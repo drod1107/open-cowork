@@ -194,9 +194,9 @@ function handleRequest(
     state.schedules.push(job);
     return json(job);
   }
-  const m = path.match(/^\/api\/schedules\/(.+)$/);
-  if (m && method === "DELETE") {
-    const id = m[1];
+  const sm = path.match(/^\/api\/schedules\/(.+)$/);
+  if (sm && method === "DELETE") {
+    const id = sm[1];
     const before = state.schedules.length;
     state.schedules = state.schedules.filter((s) => s.id !== id);
     return json({ removed: state.schedules.length < before });
@@ -205,16 +205,35 @@ function handleRequest(
   if (path === "/api/sessions" && method === "GET") {
     return json({ sessions: state.sessions });
   }
-  const sm = path.match(/^\/api\/sessions\/(.+)$/);
-  if (sm && method === "DELETE") {
-    const id = sm[1];
-    state.sessions = state.sessions.filter((s) => s.id !== id);
-    return json({ deleted: true });
+
+  // Handle /api/sessions/{id} for GET and DELETE
+  const sessionMatch = path.match(/^\/api\/sessions\/(.+)$/);
+  if (sessionMatch) {
+    const sessionId = sessionMatch[1];
+    if (method === "GET") {
+      const session = state.sessions.find((s) => s.id === sessionId);
+      if (session) {
+        // Return full session with messages (simulated)
+        return json({
+          id: session.id,
+          messages: [
+            { role: "user", content: `Message from ${session.metadata?.title || "session"}` },
+            { role: "assistant", content: `Response for ${session.metadata?.title || "session"}` },
+          ],
+          metadata: session.metadata,
+        });
+      }
+      return json({ detail: "session not found" }, 404);
+    }
+    if (method === "DELETE") {
+      const before = state.sessions.length;
+      state.sessions = state.sessions.filter((s) => s.id !== sessionId);
+      return json({ deleted: state.sessions.length < before });
+    }
   }
 
   return json({ detail: "not found" }, 404);
 }
-
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
