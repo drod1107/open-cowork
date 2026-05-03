@@ -321,10 +321,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     {"type": "permission_resolved", "id": rid, "ok": ok}
                 )
 
+            elif mtype == "ping":
+                await websocket.send_json({"type": "pong"})
+
             elif mtype == "stop":
                 await hub.stop_current()
                 await websocket.send_json({"type": "final", "text": "[stopped by user]"})
-                await websocket.send_json({"type": "pong"})
 
             else:
                 await websocket.send_json(
