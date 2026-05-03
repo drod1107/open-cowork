@@ -39,6 +39,17 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
   const assistantBufRef = useRef<string>("");
   const currentAssistantId = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const prevLoadedItemsRef = useRef<ChatItem[] | undefined>(loadedItems);
+
+  useEffect(() => {
+    if (loadedItems !== undefined && loadedItems !== prevLoadedItemsRef.current) {
+      setItems(loadedItems);
+      setBusy(false);
+      assistantBufRef.current = "";
+      currentAssistantId.current = null;
+    }
+    prevLoadedItemsRef.current = loadedItems;
+  }, [loadedItems]);
 
   useEffect(() => {
     const off = socket.on((ev: AgentEvent) => {
