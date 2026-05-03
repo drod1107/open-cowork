@@ -11,6 +11,7 @@ from typing import Any, Callable
 from ..agent import ToolSpec
 from ..permissions import PermissionGate
 from . import shell as shell_tool
+from . import spillover as spillover_mod
 
 
 def build_registry(
@@ -39,6 +40,28 @@ def build_registry(
             "required": ["command"],
         },
         handler=_shell,
+    )
+
+    async def _read_chunk(args: dict[str, Any]) -> dict[str, Any]:
+        return spillover_mod.read_spillover(
+            args["file_id"],
+            offset=int(args.get("offset", 0)),
+            limit=int(args.get("limit", 100)),
+        )
+
+    reg["read_chunk"] = ToolSpec(
+        name="read_chunk",
+        description="Page through a spillover output file saved from a previous tool call. Provide file_id, offset (line number), and limit (number of lines).",
+        parameters={
+            "type": "object",
+            "properties": {
+                "file_id": {"type": "string", "description": "Spillover file ID from a previous tool reference"},
+                "offset": {"type": "integer", "description": "Line number to start reading from (0-indexed)", "default": 0},
+                "limit": {"type": "integer", "description": "Number of lines to read", "default": 100},
+            },
+            "required": ["file_id"],
+        },
+        handler=_read_chunk,
     )
 
     return reg

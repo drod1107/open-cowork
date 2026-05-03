@@ -52,6 +52,21 @@ class ToolSpec:
         }
 
 
+def _estimate_tokens(messages: list[dict[str, Any]]) -> int:
+    """Rough token count: sum of len(content) // 4 across all messages."""
+    total = 0
+    for m in messages:
+        content = m.get("content", "")
+        if content:
+            total += len(content) // 4
+    return total
+
+
+def _is_ollama(base_url: str) -> bool:
+    """Heuristic: Ollama typically runs on localhost:11434."""
+    return "11434" in base_url or "localhost" in base_url
+
+
 @dataclass
 class Agent:
     model: str
@@ -59,7 +74,8 @@ class Agent:
     system_prompt: str
     tools: dict[str, ToolSpec] = field(default_factory=dict)
     max_turns: int = 50
-    api_key: str = "sk-opencowork-local" # any non-empty string; local providers ignore it
+    num_ctx: int = 8192
+    api_key: str = "sk-opencowork-local"
 
     def _client(self) -> AsyncOpenAI:
         return AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
@@ -67,25 +83,35 @@ class Agent:
     def register(self, spec: ToolSpec) -> None:
         self.tools[spec.name] = spec
 
-    async def run_stream(self, user_message: str) -> AsyncIterator[dict[str, Any]]:
+    async def run_stream(
+        self,
+        user_message: str,
+        history: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
         client = self._client()
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": user_message},
         ]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_message})
 
         tools_payload = [spec.to_openai() for spec in self.tools.values()] or None
         logger.info("agent starting: model=%s tools=%s msg_len=%d", self.model, list(self.tools.keys()), len(messages))
 
+        create_kwargs: dict[str, Any] = dict(
+            model=self.model,
+            messages=messages,
+            tools=tools_payload,
+            temperature=0.2,
+        )
+        if _is_ollama(self.base_url):
+            create_kwargs["extra_body"] = {"options": {"num_ctx": self.num_ctx}}
+
         for turn in range(self.max_turns):
             logger.debug("agent turn %d: calling LLM", turn + 1)
             try:
-                completion = await client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    tools=tools_payload,
-                    temperature=0.2,
-                )
+                completion = await client.chat.completions.create(**create_kwargs)
             except asyncio.CancelledError:
                 logger.warning("agent LLM call cancelled on turn %d", turn + 1)
                 yield {"type": "error", "error": "agent stopped by user during LLM call"}
