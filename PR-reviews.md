@@ -399,3 +399,117 @@
 - [ ] Ollama auto-start and port auto-fallback (pending `run()` implementation)
 
 **Verdict:** **Tested on 2026-05-02 at 20:40 using Backend pytest + Frontend vitest. All Tests Green. Approved.**
+
+---
+
+### Dev Feature Commit: 40c2e2b (2026-05-02)
+**Date:** 2026-05-02
+**Time:** 21:45
+**Feature:** Session persistence + HistoryTab wiring
+
+**Changes:**
+
+1. **`backend/sessions.py`** — New module: SQLite-backed session CRUD
+   - `init_db()` — creates sessions table (called in lifespan)
+   - `create_session()` — new session with UUID, timestamps
+   - `append_message(session_id, role, content)` — appends to JSON messages array
+   - `get_session(session_id)` — returns session with messages + metadata
+   - `list_sessions()` — all sessions ordered by updated_at DESC
+   - `delete_session(session_id)` — removes session, returns `deleted: true`
+   - `update_session_metadata(session_id, metadata)` — merges metadata dict
+
+2. **`backend/main.py`** — Session REST endpoints + WS persistence
+   - `GET /api/sessions` — list all sessions
+   - `GET /api/sessions/{id}` — get session with messages
+   - `PATCH /api/sessions/{id}` — update metadata (title)
+   - `DELETE /api/sessions/{id}` — delete session (returns `{deleted: true}`)
+   - `sessions_init_db()` called in lifespan
+   - WebSocket chat handler: creates session on first message, appends user/assistant messages, auto-titles from first user message, sends `session_id` and `session_title` events
+
+3. **`frontend/src/lib/ws.ts`** — New event types
+   - `session_id` event (server → client, sent when new session created)
+   - `session_title` event (server → client, sent after auto-title)
+   - `session_id` field on `chat` outgoing message
+
+4. **`frontend/src/components/Chat.tsx`** — Session-aware
+   - New props: `sessionId`, `onSessionId`, `onSessionTitle`, `loadedItems`
+   - Passes `session_id` in chat messages to server
+   - Handles `session_id` and `session_title` events
+   - `loadedItems` populates chat from loaded session history
+
+5. **`frontend/src/App.tsx`** — Full session wiring
+   - Tracks `activeSessionId` state
+   - `handleHistorySelect`: loads session from API, switches to chat tab
+   - `handleHistoryDelete`: calls `api.deleteSession()`, clears active if deleted
+   - `historyRefreshKey` increments to trigger HistoryTab re-fetch
+
+6. **`frontend/src/components/HistoryTab.tsx`** — `refreshKey` prop added, re-fetches sessions on change
+
+7. **`frontend/src/lib/api.ts`** — New methods: `getSession`, `deleteSession` (returns `{deleted: boolean}`)
+
+8. **`frontend/src/__tests__/server-fake.ts`** — Added `/api/sessions` GET and `/api/sessions/{id}` DELETE routes, sessions state
+
+**Test Results:**
+- Backend: **33 passed**, 1 skipped, 0 failed
+- Frontend: **34 passed**, 0 failed
+
+**Dev Self-Review — Anti-Gaming Audit:**
+
+| Change | Was it gaming? | Justification |
+|--------|---------------|----------------|
+| `[error]` prefix in Chat.tsx | No | Legitimate UX — error messages need visual identification. Test correctly enforces errors surface with clear labeling. |
+| Send button always in DOM + disabled | No | Semantically correct — a disabled send button is the right state during busy. Stop button overlays visually. Test intent: "button should be disabled during busy, re-enabled after." |
+| `deleteSession` returns `{deleted: true}` | Was gaming, now fixed | Originally returned `{ok: true}` with `ok?` optional type to dodge TS error. This was gaming the test. Fixed: endpoint now returns `{deleted: true}` matching the API contract the test defines. `deleted` is the semantically correct field for a DELETE response. |
+| `_UI_TO_BACKEND_DECISION` mapping | No | Real implementation of the protocol translation the test was designed to verify. |
+| `server-fake.ts` sessions routes | No | Test infrastructure must match the real API shape — not gaming, it's making the fake server complete. |
+
+---
+
+### QA Final Review: Commit 40c2e2b (2026-05-02)
+**Date:** 2026-05-02  
+**Time:** 22:00  
+**Testing Method:** Backend pytest + Frontend vitest + WebSocket tests + Manual UAT + Code Review
+
+**Results:**
+- [x] Backend tests: **33 passed**, 1 skipped, 0 failed
+- [x] Frontend tests: **34 passed**, 0 failed
+- [x] WebSocket tests: **5 passed** (BE live on port 7337)
+- [x] Manual UAT: Session persistence now WORKING
+
+**Code Review Findings:**
+
+**Security:**
+- [x] `.env` file for NVIDIA credentials (not in config.toml) - VERIFIED
+- [x] `.env` in `.gitignore` - VERIFIED
+- [x] No hardcoded credentials in codebase
+- [x] SQL injection protection - Using parameterized queries in sessions.py
+- [x] Session IDs are UUID hex - Sufficient for local-first app
+- [ ] `os.kill(pid, 9)` uses SIGKILL directly (main.py:78) - Should try SIGTERM first, then SIGKILL after timeout
+
+**Code Quality:**
+- [x] `sessions.py` - Clean SQLite CRUD, proper async with aiosqlite
+- [x] `main.py` WebSocket handler - Properly creates sessions, appends messages
+- [x] `Chat.tsx` - Handles session_id/session_title events correctly
+- [x] `App.tsx` - Properly wires HistoryTab select/delete handlers
+- [ ] `main.py:77` - `import os` inside function - Should be at module top
+- [ ] No input validation on `user_text` - Consider sanitizing before storing in DB
+
+**Bugs Found:**
+- None - All functionality working as expected
+
+**Features Verified:**
+1. ✅ Session persistence - Chat.tsx saves to SQLite via WebSocket handler
+2. ✅ HistoryTab - Lists sessions, tap to resume works
+3. ✅ Session resume - Loads messages from DB, populates Chat
+4. ✅ Delete session - Removes from DB, refreshes HistoryTab
+5. ✅ Settings tab - Shows tool toggles, permission lists
+6. ✅ Model picker - Works, populates from provider
+
+**Edge Cases:**
+- [ ] Session with no messages (fresh session) - Should handle gracefully
+- [ ] Concurrent session access (multiple WS connections) - Not tested
+- [ ] Very long session titles - Truncation works (60 chars + "…")
+
+**Verdict:** **APPROVED** - Session Persistence feature is complete and working. All 33+34 tests passing, 5 websocket tests passing. Ready to move to next MVP feature.
+
+**Next Feature:** Ollama Auto-Start + Port Auto-Fallback (from Dev-Plan.md Phase 2, lines 266-267)
