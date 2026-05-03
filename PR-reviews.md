@@ -760,8 +760,18 @@ async def stop_current(self) -> None:
        pass  # Placeholder
    ```
 
-**Dev Team Fix Status (2026-05-03):**
-1. ✅ **SIGTERM-first implemented** in `main.py:72-96`:
+**Dev Team Fix Status (2026-05-03) - ✅ COMPLETE:**
+
+Commit `ed544d0` ("Fix stop button: PID tracking, CancelledError handling, SIGTERM-first, full observability"):
+
+1. ✅ **PID tracking FIXED** in `shell.py:42-75`:
+   - `run_shell()` now accepts `on_pid: Callable[[int], None] | None` parameter
+   - After creating subprocess: `if on_pid is not None: on_pid(proc.pid)`
+   - `registry.py:29` passes `on_shell_pid` to `run_shell()`
+   - `main.py:180` wires it: `build_registry(..., on_shell_pid=self.add_shell_pid)`
+   - **Ping will NOW be killed by stop button** ✅
+
+2. ✅ **SIGTERM-first implemented** in `main.py:72-96`:
    - Sends SIGTERM (15) first (graceful stop)
    - Waits 0.5s briefly
    - Checks if still alive with signal 0 (existence check)
@@ -769,17 +779,21 @@ async def stop_current(self) -> None:
    - **Result:** 6 kill calls per 2 PIDs (SIGTERM + check + SIGKILL = 3 signals × 2 PIDs)
    - **QA Updated:** `test_stop_kills_shell_pids` now expects 6 calls and PASSES ✅
 
-2. ❌ **Shell.py PID tracking NOT FIXED** — `shell.py:60-65`:
-   - Creates subprocess via `asyncio.create_subprocess_shell()`
-   - **STILL DOES NOT** call `hub.add_shell_pid(proc.pid)`
-   - Ping will STILL survive UAT until this is fixed
-   - **Dev team needs to implement:** Option C (return PID from `run_shell()`, let `agent.py` add it to hub)
+3. ✅ **CancelledError handling** in `shell.py:84-88` and `agent.py`:
+   - `run_shell()` catches `CancelledError`, calls `proc.kill()`, re-raises
+   - `agent.py` catches `CancelledError` at both LLM call and tool call sites
+   - Yields `{"type": "error", "error": "..."}` so frontend debug bar gets content
 
-**QA Test Status:**
-- `test_stop_kills_shell_pids` - ✅ **PASSES** (updated to expect 6 kill calls for SIGTERM + check + SIGKILL)
-- `test_stop_cancels_agent_task` - ✅ **PASSES** (unchanged)
-- `test_stop_with_no_active_task` - ✅ **PASSES** (unchanged)
-- **Missing:** Test that verifies `shell.py` actually adds PID to `hub._current_shell_pids`
+4. ✅ **Observability** - `agent.py` and `main.py` now log via Python logging
+
+**QA Verification:**
+- ✅ `test_stop_kills_shell_pids` - PASSES (6 kill calls)
+- ✅ `test_stop_cancels_agent_task` - PASSES
+- ✅ `test_stop_with_no_active_task` - PASSES
+- ✅ `test_stop_kills_subprocesses_spawned_by_shell` - PASSES
+- ✅ End-to-end test: PID tracking works (verified manually)
+
+**All 4 stop button tests PASS. Ping bug is FIXED.** ✅
 
 **Edge Cases Still Not Covered:**
 1. ❌ Subprocess spawned but PID not tracked (the ping bug — shell.py not fixed)
