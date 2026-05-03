@@ -209,7 +209,7 @@ function handleRequest(
   if (sm && method === "DELETE") {
     const id = sm[1];
     state.sessions = state.sessions.filter((s) => s.id !== id);
-    return json({ ok: true });
+    return json({ deleted: true });
   }
 
   return json({ detail: "not found" }, 404);

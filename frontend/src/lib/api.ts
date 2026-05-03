@@ -32,6 +32,11 @@ export const api = {
 
   deleteSession: (id: string) =>
     fetch(`/api/sessions/${id}`, { method: "DELETE" }).then((r) =>
-      json<{ ok: boolean }>(r),
+      json<{ deleted: boolean }>(r),
+    ),
+
+  getSession: (id: string) =>
+    fetch(`/api/sessions/${id}`).then((r) =>
+      json<{ id: string; messages: Array<{ role: string; content: string }>; metadata: { title?: string }; created_at: string; updated_at: string }>(r),
     ),
 };

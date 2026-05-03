@@ -24,10 +24,14 @@ type ChatItem =
 export interface ChatProps {
   socket: AgentSocket;
   hasModel?: boolean;
+  sessionId?: string | null;
+  onSessionId?: (id: string) => void;
+  onSessionTitle?: (id: string, title: string) => void;
+  loadedItems?: ChatItem[];
 }
 
-export default function Chat({ socket, hasModel = true }: ChatProps) {
-  const [items, setItems] = useState<ChatItem[]>([]);
+export default function Chat({ socket, hasModel = true, sessionId, onSessionId, onSessionTitle, loadedItems }: ChatProps) {
+  const [items, setItems] = useState<ChatItem[]>(loadedItems ?? []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
@@ -115,6 +119,10 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
         ...items,
         { kind: "error", text: ev.error, id },
       ]);
+    } else if (ev.type === "session_id") {
+      onSessionId?.(ev.session_id);
+    } else if (ev.type === "session_title") {
+      onSessionTitle?.(ev.session_id, ev.title);
     }
   };
 
@@ -122,7 +130,9 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
     if (!input.trim()) return;
     const id = crypto.randomUUID();
     setItems((items) => [...items, { kind: "user", text: input, id }]);
-    socket.send({ type: "chat", text: input });
+    const msg: { type: "chat"; text: string; session_id?: string } = { type: "chat", text: input };
+    if (sessionId) msg.session_id = sessionId;
+    socket.send(msg);
     setInput("");
     setBusy(true);
     assistantBufRef.current = "";
