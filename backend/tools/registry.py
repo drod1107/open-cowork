@@ -6,7 +6,7 @@ testable with fake tools.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ..agent import ToolSpec
 from ..permissions import PermissionGate
@@ -17,13 +17,16 @@ def build_registry(
     gate: PermissionGate,
     *,
     working_dir: str | Path = ".",
+    on_shell_pid: Callable[[int], None] | None = None,
 ) -> dict[str, ToolSpec]:
     reg: dict[str, ToolSpec] = {}
 
-    # shell
     async def _shell(args: dict[str, Any]) -> dict[str, Any]:
         res = await shell_tool.run_shell(
-            args["command"], gate=gate, working_dir=str(working_dir)
+            args["command"],
+            gate=gate,
+            working_dir=str(working_dir),
+            on_pid=on_shell_pid,
         )
         return res.to_dict()
 
