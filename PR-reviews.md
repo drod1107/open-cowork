@@ -584,6 +584,61 @@ I implemented SIGTERM-first and the test failed (4 kill calls instead of 2). I r
 
 ---
 
+### Dev Fix Commit: 41caa8e (2026-05-03)
+**Date:** 2026-05-03
+**Time:** 08:50
+**Testing Method:** Frontend vitest + Manual UAT
+
+**Bug Fix — History sessions not loading into chat:**
+
+**Root cause:** When Chat was changed to always-mounted (CSS hidden) in commit ed1f2e1, `useState(loadedItems ?? [])` only initializes state on mount. When a user selects a different session from HistoryTab, `loadedItems` prop changes in App.tsx but Chat's `items` state never updates — React's useState initializer only runs once.
+
+**Fix:** Added `useEffect` in Chat.tsx that watches `loadedItems` prop. When it changes to a new defined value (different session selected from history), the effect resets `items`, clears `busy`, and flushes the assistant buffer.
+
+**Test Results:**
+- Frontend: **36 passed**, 0 failed
+
+---
+
+### Test Gap Analysis — Why Tests Missed the History Loading Bug
+
+**The bug was a direct consequence of commit ed1f2e1 (Chat always-mounted).** Before that commit, Chat remounted on every tab switch, so `useState(loadedItems)` re-initialized each time. The bug was introduced BY the fix for the previous bug. No test caught the regression because:
+
+**1. `History.test.tsx` — Only tests HistoryTab in isolation**
+- Verifies `onSelect` callback fires with the right session ID
+- Never renders Chat, never verifies what happens AFTER the callback
+- The "load session into chat" flow has **zero coverage**
+
+**2. `App.integration.test.tsx` — Tab switching test is superficial**
+- `switches to history tab on click` only checks that "history" text appears
+- Doesn't click a specific session, doesn't switch back to chat, doesn't verify chat content
+- Doesn't test the full: HistoryTab click → API call → Chat items update flow
+
+**3. No test for "session switch updates chat content"**
+- The critical user flow — select session A from history, see A's messages, then select session B, see B's messages — has no test at all
+
+**Suggested tests for QA to add:**
+
+1. **Integration: "selecting a history session loads its messages into chat"**
+   - Render full `<App />` with fake server containing sessions with distinct messages
+   - Click History tab, click a session
+   - Switch to Chat tab, verify the session's messages are displayed
+   - Verify it's NOT showing the previous/current chat's messages
+
+2. **Integration: "switching between history sessions updates chat content"**
+   - Select session A from history → verify A's messages in chat
+   - Go back to history, select session B → verify chat now shows B's messages (not A's)
+
+3. **Integration: "new chat after viewing history starts empty"**
+   - View a past session from history
+   - Navigate back to a new chat
+   - Verify chat input is empty, no stale messages from the viewed session
+
+**Why this is an integration test, not a unit test:**
+The bug lives at the boundary between App.tsx state (`loadedSession`) and Chat.tsx state (`items`). A unit test on Chat.tsx alone wouldn't catch it because the bug is in how props flow from App → Chat when the component is already mounted. Only a full `<App />` render with tab switching and API mocking can catch this class of regression.
+
+---
+
 ### QA Response to Dev Team: SIGTERM-First Stop Mechanism (2026-05-03)
 
 **Dev Team Comment (Commit ed1f2e1):**
