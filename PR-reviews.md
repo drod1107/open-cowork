@@ -760,16 +760,49 @@ async def stop_current(self) -> None:
        pass  # Placeholder
    ```
 
-**QA Test Status:**
-- `test_stop_kills_shell_pids` - **FAILS** (expects SIGTERM-first, dev only does SIGKILL)
-- `test_stop_kills_subprocesses_spawned_by_shell` - **PASSES** (documents gap, doesn't fail)
-- **Missing:** Test that actually verifies `shell.py` tracks PIDs
+**Dev Team Fix Status (2026-05-03):**
+1. ✅ **SIGTERM-first implemented** in `main.py:72-96`:
+   - Sends SIGTERM (15) first (graceful stop)
+   - Waits 0.5s briefly
+   - Checks if still alive with signal 0 (existence check)
+   - Sends SIGKILL (9) if still running
+   - **Result:** 6 kill calls per 2 PIDs (SIGTERM + check + SIGKILL = 3 signals × 2 PIDs)
+   - **QA Updated:** `test_stop_kills_shell_pids` now expects 6 calls and PASSES ✅
 
-**Edge Cases Not Covered:**
-1. Subprocess spawned but PID not tracked (the ping bug)
-2. Multiple subprocesses from one agent invocation
-3. Subprocess that spawns its own children (process tree)
-4. SIGTERM doesn't kill it, SIGKILL needed (current test expects this, dev hasn't implemented)
+2. ❌ **Shell.py PID tracking NOT FIXED** — `shell.py:60-65`:
+   - Creates subprocess via `asyncio.create_subprocess_shell()`
+   - **STILL DOES NOT** call `hub.add_shell_pid(proc.pid)`
+   - Ping will STILL survive UAT until this is fixed
+   - **Dev team needs to implement:** Option C (return PID from `run_shell()`, let `agent.py` add it to hub)
+
+**QA Test Status:**
+- `test_stop_kills_shell_pids` - ✅ **PASSES** (updated to expect 6 kill calls for SIGTERM + check + SIGKILL)
+- `test_stop_cancels_agent_task` - ✅ **PASSES** (unchanged)
+- `test_stop_with_no_active_task` - ✅ **PASSES** (unchanged)
+- **Missing:** Test that verifies `shell.py` actually adds PID to `hub._current_shell_pids`
+
+**Edge Cases Still Not Covered:**
+1. ❌ Subprocess spawned but PID not tracked (the ping bug — shell.py not fixed)
+2. ✅ Multiple subprocesses from one agent invocation (SIGTERM sent to all PIDs)
+3. ❌ Subprocess that spawns its own children (process tree — SIGKILL only kills direct child)
+4. ✅ SIGTERM doesn't kill it, SIGKILL needed (dev implemented this correctly)
+
+**Next Steps for Dev Team:**
+1. **Fix `shell.py`** to return PID or accept hub reference:
+   ```python
+   # Option C (recommended): Return PID from run_shell()
+   async def run_shell(...) -> tuple[ShellResult, int | None]:
+       proc = await asyncio.create_subprocess_shell(...)
+       pid = proc.pid
+       result = ShellResult(...)
+       return result, pid
+   
+   # In agent.py:
+   result, pid = await run_shell(...)
+   if pid:
+       hub.add_shell_pid(pid)
+   ```
+2. **Add test** `test_shell_command_tracked_in_hub` to verify PID tracking
 
 ---
 
@@ -783,7 +816,7 @@ async def stop_current(self) -> None:
 | `test_permissions.py` | 5 | ✅ Good | ✅ Yes | Updated for MVP (removed web category) |
 | `test_providers.py` | 6 | ⚠️ OK | ✅ Yes | Could use more comments on provider types |
 | `test_shell.py` | 3 | ✅ Good | ⚠️ Some | `test_runs_allowed_command` - what's being tested? |
-| `test_stop_killswitch.py` | 3 | ⚠️ Needs work | ❌ No | **FAILS** (expects SIGTERM-first). Names OK but no comments explaining the 4 kill calls |
+| `test_stop_killswitch.py` | 3 | ✅ Good | ✅ Yes | **UPDATED** - now expects 6 kill calls (SIGTERM + check + SIGKILL), PASSES ✅ |
 | `test_tool_toggle.py` | 2 | ✅ Good | ✅ Yes | Clear: enabled allows, disabled blocks |
 | `test_websocket_chat.py` | 5 | ✅ Good | ✅ Yes | WebSocket tests, all passing with BE live |
 | `test_ollama_autostart.py` | 2 | ⚠️ OK | ❌ No | **FAILS** (feature not implemented). No comments explaining what's being tested |
@@ -797,19 +830,51 @@ async def stop_current(self) -> None:
 | `History.test.tsx` | 5 | ✅ Good | ✅ Yes | Session list, select, delete |
 | `HistoryFlow.test.tsx` | 3 | ✅ Good | ✅ Yes | **NEW** - Resume flow, switch sessions |
 | `ModelPicker.test.tsx` | ? | ✅ Good | ✅ Yes | Provider picker, ping states |
-| `ws.test.tsx` | 4 | ✅ Good | ✅ Yes | WebSocket message types |
+| `ws.test.ts` | 4 | ✅ Good | ✅ Yes | WebSocket message types |
+
+**Debug Bar Test Coverage (Golden Path Analysis):**
+
+Tests in `App.integration.test.tsx:251-291`:
+1. ✅ **"debug icon toggles debug bar"** - Tests:
+   - Debug icon exists in document
+   - Click shows debug bar with "Copy" button
+   - Click again hides debug bar
+   - **COVERS:** Bug bar shows when bug icon clicked, disappears when clicked again ✅
+
+2. ✅ **"copy button copies debug output to clipboard"** - Tests:
+   - Emits `error` event via WebSocket
+   - Clicks copy button
+   - Verifies `navigator.clipboard.writeText()` was called
+   - **COVERS:** Copy button works to save error text to clipboard ✅
+   - **PARTIALLY COVERS:** Error message shows in debug bar (emits error, but doesn't verify text is visible)
+
+**Golden Path Gaps (NOT COVERED):**
+1. ❌ **Error text is physically visible in debug bar when expanded** — Test emits error but doesn't verify `screen.getByText(/test error/i)` appears in the debug bar
+2. ❌ **Multiple errors accumulate** — Debug bar should show all errors, not just the latest
+3. ❌ **Debug bar only shows on icon click (not auto-shown)** — Verify debug bar is hidden by default (no auto-show on error)
+4. ❌ **Error text content matches exactly** — Verify the actual error text ("test error") appears in the `<pre>` block
+
+**Recommended New Tests:**
+```typescript
+it("error message is visible in debug bar after emitting error", async () => {
+  // Emit error, open debug bar, verify text is in document
+});
+
+it("debug bar does not auto-show on error (must click icon)", async () => {
+  // Emit error, verify debug bar is NOT visible without clicking icon
+});
+
+it("multiple errors accumulate in debug bar", async () => {
+  // Emit multiple errors, open debug bar, verify all errors appear
+});
+```
 
 **Files Needing Improvement:**
-1. **`test_stop_killswitch.py`** - Add comments explaining:
-   - Why 4 kill calls? (2 PIDs × 2 signals = SIGTERM + SIGKILL)
-   - What's the BUG? (dev only does SIGKILL, test expects SIGTERM-first)
-   - Add test for `shell.py` PID tracking
-
+1. **`test_stop_killswitch.py`** - ✅ **FIXED** - Updated comments, now passes with 6 kill calls
 2. **`test_ollama_autostart.py`** - Add comments:
    - What is being tested? (binary detection, port check, subprocess start)
    - Why does it fail? (feature not in `run()` yet)
    - What should dev implement?
-
 3. **`test_port_fallback.py`** - Add comments:
    - What is port fallback? (scan from 7337 upward)
    - Why does it fail? (`run()` doesn't have scanning logic)
@@ -821,10 +886,11 @@ async def stop_current(self) -> None:
 - ✅ All names are descriptive (not `test1.py` or `foo.test.tsx`)
 
 **Action Items for QA:**
-1. Add comments to `test_stop_killswitch.py` explaining the 4 kill calls
+1. ✅ Updated `test_stop_killswitch.py` - now passes with dev's SIGTERM-first fix
 2. Add comments to `test_ollama_autostart.py` and `test_port_fallback.py`
-3. Add test for `shell.py` PID tracking (the real bug from UAT)
+3. **Add test for `shell.py` PID tracking** (the real bug from UAT — ping survives)
 4. Consider renaming `test_stop_kills_subprocesses_spawned_by_shell` to something clearer
+5. **Add debug bar golden path tests** (error text visibility, no auto-show, multiple errors)
 
 ---
 

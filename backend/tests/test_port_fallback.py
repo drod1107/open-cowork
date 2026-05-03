@@ -4,6 +4,14 @@ Per MVP spec (Dev-Plan.md:267):
 - If default port 7337 is in use, scan upward (7338, 7339, etc.)
 - Return the first available port
 - Print the actual URL on startup
+
+Why these tests FAIL:
+- `run()` function doesn't have port scanning logic yet
+- Dev team needs to implement:
+  1. Try default port 7337
+  2. If in use, scan upward (range(7337, 7345))
+  3. Use `socket.connect_ex()` to check each port
+  4. Print the actual URL with the port that was chosen
 """
 
 import inspect
@@ -14,15 +22,20 @@ import pytest
 async def test_run_function_has_port_fallback_logic():
     """Verify run() function scans for available ports.
 
-    This test checks that the run() function contains the necessary
-    logic to scan for available ports when the default is in use.
+    This test checks that the run() function:
+    1. Checks if default port 7337 is available
+    2. Scans upward if 7337 is in use
+    3. Uses socket.connect_ex() to check availability
+
+    Why it FAILS:
+    - `run()` doesn't have port scanning logic yet
+    - Dev needs to add: port scanning loop, socket checks
     """
     from backend import main
 
-    # Get source code of run() function
     source = inspect.getsource(main.run)
 
-    # Check for key elements that should be present
+    # Check for key elements
     has_port_scan = (
         "range(7337" in source
         or "for port" in source
@@ -44,6 +57,10 @@ async def test_run_function_prints_actual_url():
     """Verify run() function prints the actual URL with correct port.
 
     Per MVP spec: 'Prints the actual URL on startup'
+
+    Why it FAILS:
+    - `run()` doesn't print the actual URL with the chosen port
+    - Dev needs to add: print statement or logger.info() with the URL
     """
     from backend import main
 

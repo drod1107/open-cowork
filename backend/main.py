@@ -73,11 +73,20 @@ class HubState:
         """Cancel the current agent task and kill any running shell processes."""
         for pid in self._current_shell_pids:
             try:
-                os.kill(pid, 9)  # SIGKILL
+                os.kill(pid, 15)  # SIGTERM — graceful stop
+            except Exception:
+                pass
+        if self._current_shell_pids:
+            await asyncio.sleep(0.5)
+        for pid in self._current_shell_pids:
+            try:
+                os.kill(pid, 0)  # check if still alive
+                os.kill(pid, 9)  # SIGKILL — force
+            except ProcessLookupError:
+                pass
             except Exception:
                 pass
         self._current_shell_pids = []
-        # Cancel the agent task
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
             try:
@@ -165,7 +174,7 @@ class HubState:
             system_prompt=system_prompt,
             max_turns=max_turns,
         )
-        agent.tools = build_registry(self.gate, working_dir=working_dir)
+        agent.tools = build_registry(self.gate, working_dir=working_dir, on_shell_pid=self.add_shell_pid)
         return agent
 
 

@@ -288,6 +288,59 @@ describe("App integration: debug bar", () => {
     
     expect(clipboardWriteText).toHaveBeenCalled();
   });
+
+  it("error message is visible in debug bar after emitting error", async () => {
+    render(<App />);
+    const sock = await server.awaitSocket();
+    
+    const debugIcon = screen.getByTitle(/toggle debug bar/i);
+    fireEvent.click(debugIcon);
+    
+    act(() => {
+      sock.emit({ type: "error", error: "test error message" });
+    });
+    
+    // Verify error text is physically visible in the debug bar
+    const debugPre = document.querySelector('pre');
+    expect(debugPre).toBeInTheDocument();
+    expect(debugPre?.textContent).toContain("test error message");
+  });
+
+  it("debug bar does not auto-show on error (must click icon)", async () => {
+    render(<App />);
+    const sock = await server.awaitSocket();
+    
+    // Emit error WITHOUT clicking debug icon
+    act(() => {
+      sock.emit({ type: "error", error: "should not auto-show" });
+    });
+    
+    // Debug bar should NOT be visible (no auto-show on error)
+    expect(screen.queryByText(/Copy/i)).not.toBeInTheDocument();
+    expect(document.querySelector('pre')).not.toBeInTheDocument();
+  });
+
+  it("multiple errors accumulate in debug bar", async () => {
+    render(<App />);
+    const sock = await server.awaitSocket();
+    
+    const debugIcon = screen.getByTitle(/toggle debug bar/i);
+    fireEvent.click(debugIcon);
+    
+    // Emit multiple errors
+    act(() => {
+      sock.emit({ type: "error", error: "first error" });
+      sock.emit({ type: "error", error: "second error" });
+      sock.emit({ type: "error", error: "third error" });
+    });
+    
+    // Verify all errors appear in the debug bar <pre> block
+    const debugPre = document.querySelector('pre');
+    expect(debugPre).toBeInTheDocument();
+    expect(debugPre?.textContent).toContain("first error");
+    expect(debugPre?.textContent).toContain("second error");
+    expect(debugPre?.textContent).toContain("third error");
+  });
 });
 
 describe("App integration: textarea input", () => {
