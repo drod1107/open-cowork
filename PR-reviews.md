@@ -513,3 +513,43 @@
 **Verdict:** **APPROVED** - Session Persistence feature is complete and working. All 33+34 tests passing, 5 websocket tests passing. Ready to move to next MVP feature.
 
 **Next Feature:** Ollama Auto-Start + Port Auto-Fallback (from Dev-Plan.md Phase 2, lines 266-267)
+
+---
+
+### NEW BUG REPORT: Session Lost on Settings Tab Switch (2026-05-02)
+**Discovered During:** Manual UAT by David (PM/Interface)  
+**Severity:** HIGH - Data loss bug  
+
+**Steps to Reproduce:**
+1. Chat with model, exercise shell tool (works correctly)
+2. Switch to **Settings tab** to test tool toggle (slide-switch, NOT checkbox as MVP spec requires)
+3. Switch back to **Chat tab** - now on a **different/new chat** (NOT the chat from step 1)
+4. Switch to **History tab** - the chat from step 1 is **GONE** (not in session list)
+5. User did NOT delete the session
+
+**Expected Behavior:**
+- Switching tabs should NOT create new sessions or delete existing ones
+- Chat tab should return to the SAME session, not start a new one
+- History tab should preserve ALL sessions unless explicitly deleted
+
+**Actual Behavior:**
+- Session from step 1 is missing from History tab
+- Chat tab "forgot" the active session when switching to Settings
+- Possible cause: `activeSessionId` state is being reset when switching tabs or Settings tab renders
+
+**Suspected Code Locations:**
+- `frontend/src/App.tsx:17-24` - `activeSessionId` state management
+- `frontend/src/App.tsx:98-103` - Tab rendering logic (Chat tab remounts on tab switch?)
+- `frontend/src/components/Chat.tsx` - Session handling on mount/unmount
+
+**MVP Spec Violation:**
+- Dev-Plan.md: "Tap: Resume session (switches to Chat tab, loads history)" - Tab switching should NOT lose sessions
+- This is a **data loss bug** - users can lose work by switching tabs
+
+**Dev Team Action Required:**
+1. Fix tab switching to preserve `activeSessionId` state
+2. Ensure Chat tab doesn't remount (loses state) when switching tabs
+3. Verify sessions are NOT being deleted/deleted accidentally
+4. Settings tab should use **slide-toggle** (per MVP spec), NOT checkbox
+
+**Priority:** HIGH - Must fix before moving to next feature
