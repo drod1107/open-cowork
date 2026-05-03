@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..permissions import PermissionGate
+from ..config_loader import load_config
 
 
 @dataclass
@@ -41,8 +42,15 @@ async def run_shell(
     gate: PermissionGate,
     working_dir: str | Path = ".",
     timeout: float = 120.0,
+    config_path: str | Path | None = None,
 ) -> ShellResult:
-    """Run `command` after checking the permission gate."""
+    """Run `command` after checking tool toggle and permission gate."""
+    cfg_path = config_path or getattr(gate, "_config_path", None)
+    if cfg_path is not None:
+        cfg = load_config(cfg_path)
+        if not cfg.get("tools", {}).get("shell", True):
+            return ShellResult(command, -1, "", "Shell tool is disabled in config", False, "Shell tool is disabled in config")
+
     permission = await gate.check(
         "shell", command, description=f"Run shell command: {command}"
     )

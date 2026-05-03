@@ -15,6 +15,7 @@ export interface FakeServerState {
   selected: string | null;
   config: Record<string, unknown>;
   schedules: Array<{ id: string; description: string; cron: string; next_run: string | null }>;
+  sessions: Array<{ id: string; metadata: { title?: string }; updated_at: string }>;
   modelsCalls: number;
   recorded: Recorded[];
 }
@@ -66,6 +67,7 @@ export function installFakeServer(
     selected: initial.selected ?? null,
     config: initial.config ?? defaultConfig(),
     schedules: initial.schedules ?? [],
+    sessions: initial.sessions ?? [],
     modelsCalls: 0,
     recorded: [],
   };
@@ -198,6 +200,16 @@ function handleRequest(
     const before = state.schedules.length;
     state.schedules = state.schedules.filter((s) => s.id !== id);
     return json({ removed: state.schedules.length < before });
+  }
+
+  if (path === "/api/sessions" && method === "GET") {
+    return json({ sessions: state.sessions });
+  }
+  const sm = path.match(/^\/api\/sessions\/(.+)$/);
+  if (sm && method === "DELETE") {
+    const id = sm[1];
+    state.sessions = state.sessions.filter((s) => s.id !== id);
+    return json({ ok: true });
   }
 
   return json({ detail: "not found" }, 404);

@@ -8,6 +8,7 @@ We cache results in memory for a short TTL; the UI "refresh" button passes
 """
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -76,7 +77,7 @@ class ProviderClient:
         client = await self._client()
         if self.provider == "ollama":
             models = await self._list_ollama(client)
-        elif self.provider in ("lmstudio", "vllm", "sglang"):
+        elif self.provider in ("lmstudio", "vllm", "sglang", "openai-compat", "nvidia"):
             models = await self._list_openai_compatible(client)
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
@@ -98,7 +99,15 @@ class ProviderClient:
         return out
 
     async def _list_openai_compatible(self, client: httpx.AsyncClient) -> list[Model]:
-        resp = await client.get(f"{self.base_url}/v1/models")
+        headers: dict[str, str] = {}
+        if self.provider == "nvidia":
+            api_key = os.getenv("NVIDIA_API_KEY", "")
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+        url = f"{self.base_url}/v1/models"
+        if self.provider == "nvidia" and not self.base_url.rstrip("/").endswith("/v1"):
+            url = f"{self.base_url.rstrip('/')}/v1/models"
+        resp = await client.get(url, headers=headers or None)
         resp.raise_for_status()
         payload = resp.json()
         out: list[Model] = []
