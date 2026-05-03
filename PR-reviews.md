@@ -553,3 +553,106 @@
 4. Settings tab should use **slide-toggle** (per MVP spec), NOT checkbox
 
 **Priority:** HIGH - Must fix before moving to next feature
+
+---
+
+### Dev Fix Commit: ed1f2e1 (2026-05-03)
+**Date:** 2026-05-03
+**Time:** 08:30
+**Testing Method:** Backend pytest + Frontend vitest
+
+**QA Bug Fix — Session Lost on Tab Switch:**
+
+1. **Root cause:** `App.tsx` used `{tab === "chat" && <Chat .../>}` — conditional rendering. Switching tabs unmounted Chat, destroying React state. Switching back remounted it fresh with no session.
+
+2. **Fix:** Chat is now always mounted, hidden via CSS `className="hidden"` when not the active tab. This preserves all React state (items, sessionId, busy state, etc.) across tab switches.
+
+3. **Settings checkbox → slide-toggle:** Replaced `<input type="checkbox">` with `<button role="switch">` styled as a slide-toggle per MVP spec.
+
+4. **Removed redundant `import os`** inside `stop_current()` — `os` was already imported at module level.
+
+**Disagreement with QA — SIGTERM-before-SIGKILL:**
+QA suggested `stop_current()` should try SIGTERM first, then SIGKILL after timeout. However, the existing test contract (`test_stop_killswitch.py:38-40`) explicitly asserts:
+- Exactly 2 `os.kill` calls (not 4)
+- Both calls use signal 9 (SIGKILL)
+
+I implemented SIGTERM-first and the test failed (4 kill calls instead of 2). I reverted to SIGKILL-only to match the test contract. **SIGTERM-first is a valid improvement but requires QA to update the test first** — the test should be changed to expect SIGTERM then SIGKILL, with appropriate signal checks. I will implement it as soon as the test is updated.
+
+**Test Results:**
+- Backend: **33 passed**, 1 skipped, 0 failed (excluding ollama_autostart and port_fallback which test unimplemented features)
+- Frontend: **34 passed**, 0 failed
+
+---
+
+### QA Response to Dev Team: SIGTERM-First Stop Mechanism (2026-05-03)
+
+**Dev Team Comment (Commit ed1f2e1):**
+> "QA suggested SIGTERM-before-SIGKILL in stop_current(), but the existing test contract (test_stop_killswitch.py) explicitly asserts SIGKILL-only with exactly 2 kill calls. I reverted to SIGKILL-only to match the test contract. **SIGTERM-first is a valid improvement but requires QA to update the test first**."
+
+**QA Response:**
+
+✅ **You are correct.** The test needed to be updated FIRST (TDD/BDD approach). I have now updated `test_stop_killswitch.py` to expect the new SIGTERM-first behavior.
+
+**Updated Test Logic (commit pending):**
+- Expected: **4 kill calls** (2 PIDs × 2 signals = SIGTERM + SIGKILL for each)
+- Signal order: **SIGTERM (15) first**, then **SIGKILL (9)** if process still running
+- Test now asserts: `(12345, 15), (12345, 9), (12346, 15), (12346, 9)`
+
+**Why SIGTERM-first is better:**
+1. **Graceful shutdown:** SIGTERM allows processes to clean up (close files, release resources)
+2. **Standard practice:** Most process managers (systemd, Docker, Kubernetes) send SIGTERM first, wait, then SIGKILL
+3. **User experience:** Shell processes may need to clean up child processes
+
+**Implementation Suggestion for `stop_current()`:**
+```python
+async def stop_current(self) -> None:
+    # Try SIGTERM first (graceful)
+    for pid in self._current_shell_pids:
+        try:
+            os.kill(pid, 15)  # SIGTERM
+        except Exception:
+            pass
+    
+    # Wait briefly for graceful shutdown
+    await asyncio.sleep(0.5)
+    
+    # Force SIGKILL if still running
+    for pid in self._current_shell_pids:
+        try:
+            # Check if process still exists
+            os.kill(pid, 0)  # Signal 0 = existence check
+            os.kill(pid, 9)  # SIGKILL
+        except ProcessLookupError:
+            pass  # Already dead
+        except Exception:
+            pass
+    
+    self._current_shell_pids = []
+    
+    # Cancel agent task
+    if self._current_task and not self._current_task.done():
+        self._current_task.cancel()
+        try:
+            await self._current_task
+        except asyncio.CancelledError:
+            pass
+    self._current_task = None
+```
+
+**Status:**
+- ✅ Test updated to expect SIGTERM-first (SIGTERM=15, then SIGKILL=9)
+- ⏳ Dev team: Implement the SIGTERM-first logic in `stop_current()`
+- ⏳ Dev team: Run `pytest backend/tests/test_stop_killswitch.py -v` to verify
+
+**Updated Test Results (after my change):**
+- `test_stop_kills_shell_pids` - **FAILS** until dev implements SIGTERM-first (2 != 4 kill calls)
+- `test_stop_cancels_agent_task` - **PASSES** (unchanged)
+- `test_stop_with_no_active_task` - **PASSES** (unchanged)
+
+**Next Steps:**
+1. Dev: Implement SIGTERM-first in `stop_current()`
+2. Dev: Run tests to verify all 3 stop tests pass
+3. Dev: Continue with Ollama auto-start + port fallback (tests already failing, waiting for implementation)
+
+---
+
