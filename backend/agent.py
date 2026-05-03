@@ -75,6 +75,7 @@ class Agent:
     tools: dict[str, ToolSpec] = field(default_factory=dict)
     max_turns: int = 50
     num_ctx: int = 8192
+    compaction_threshold: float = 0.75
     api_key: str = "sk-opencowork-local"
 
     def _client(self) -> AsyncOpenAI:
@@ -82,6 +83,89 @@ class Agent:
 
     def register(self, spec: ToolSpec) -> None:
         self.tools[spec.name] = spec
+
+    def _token_budget(self) -> int:
+        return int(self.num_ctx * self.compaction_threshold)
+
+    def _find_compaction_boundary(self, messages: list[dict[str, Any]], keep_recent: int = 2) -> int:
+        """Find the index where old messages end and recent context begins.
+
+        Walks backwards from the end, counting turn boundaries (user or
+        assistant messages). Tool messages belong to the preceding
+        assistant turn. Returns the index *after* the last old message.
+        """
+        turns_seen = 0
+        idx = len(messages) - 1
+        while idx >= 0 and turns_seen < keep_recent:
+            role = messages[idx].get("role", "")
+            if role in ("user", "assistant"):
+                turns_seen += 1
+            if turns_seen < keep_recent:
+                idx -= 1
+        # idx now points to the first message of the recent window
+        # but we must not split a tool-call/result pair: walk backward
+        # past any tool messages that belong to an assistant turn before idx
+        while idx > 0 and messages[idx].get("role") == "tool":
+            idx -= 1
+        # If idx landed on an assistant with tool_calls, that assistant
+        # and its tool results are part of recent context — go back one more
+        if idx > 0 and messages[idx].get("role") == "assistant" and messages[idx].get("tool_calls"):
+            # The assistant turn + tool results are the start of recent window
+            pass
+        return idx
+
+    async def _compact_messages(
+        self, client: AsyncOpenAI, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Compact old messages into a single summary when token budget exceeded.
+
+        Returns a new message list with old messages replaced by a summary
+        system message. Original messages are NOT modified (runtime-only).
+        """
+        budget = self._token_budget()
+        if _estimate_tokens(messages) <= budget:
+            return messages
+
+        boundary = self._find_compaction_boundary(messages, keep_recent=2)
+        # System prompt (index 0) is always kept
+        old_messages = messages[1:boundary]
+        recent_messages = messages[boundary:]
+
+        if not old_messages:
+            return messages
+
+        # Build a summarization prompt
+        conversation_text = "\n".join(
+            f"{m.get('role', '?')}: {m.get('content', '')}" for m in old_messages
+        )
+        summary_prompt = (
+            "Summarize the following conversation so far, preserving key facts, "
+            "decisions, and tool results. Be concise but complete.\n\n"
+            f"{conversation_text}"
+        )
+
+        logger.info("agent compacting: %d old messages, ~%d tokens over budget %d",
+                     len(old_messages), _estimate_tokens(old_messages), budget)
+
+        try:
+            summary_completion = await client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": summary_prompt}],
+                temperature=0.0,
+            )
+            summary_text = summary_completion.choices[0].message.content or ""
+        except Exception as exc:
+            logger.warning("agent compaction LLM call failed: %s — keeping original messages", exc)
+            return messages
+
+        summary_message = {
+            "role": "system",
+            "content": f"[Previous conversation summary: {summary_text}]",
+        }
+        compacted = [messages[0], summary_message] + recent_messages
+        logger.info("agent compacted: %d messages -> %d (~%d tokens)",
+                     len(messages), len(compacted), _estimate_tokens(compacted))
+        return compacted
 
     async def run_stream(
         self,
@@ -110,6 +194,11 @@ class Agent:
 
         for turn in range(self.max_turns):
             logger.debug("agent turn %d: calling LLM", turn + 1)
+
+            # Proactive compaction: check budget before each LLM call
+            messages = await self._compact_messages(client, messages)
+            create_kwargs["messages"] = messages
+
             try:
                 completion = await client.chat.completions.create(**create_kwargs)
             except asyncio.CancelledError:
