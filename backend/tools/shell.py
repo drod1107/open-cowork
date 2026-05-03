@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from ..permissions import PermissionGate
 from ..config_loader import load_config
+from .spillover import maybe_spillover
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +89,9 @@ async def run_shell(
         raise
 
     exit_code = proc.returncode if proc.returncode is not None else -1
-    stdout = stdout_b.decode(errors="replace")
-    stderr = stderr_b.decode(errors="replace")
-    logger.info("shell done: %s exit=%d stdout=%d bytes stderr=%d bytes", command, exit_code, len(stdout), len(stderr))
+    stdout = maybe_spillover(stdout_b.decode(errors="replace"), prefix="shell_stdout")
+    stderr = maybe_spillover(stderr_b.decode(errors="replace"), prefix="shell_stderr")
+    logger.info("shell done: %s exit=%d stdout=%d bytes stderr=%d bytes", command, exit_code, len(stdout_b), len(stderr_b))
     return ShellResult(
         command=command,
         exit_code=exit_code,
