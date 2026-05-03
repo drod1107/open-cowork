@@ -138,14 +138,13 @@ async def test_run_stream_includes_history_before_current_message(tmp_config, tm
     - History should be prepended before current user message
     - Final messages: [system_prompt, ...history, current_user_message]
 
-    This test should FAIL until Agent.run_stream() accepts history parameter.
-    CRITICAL: This tests the REAL flow, not mocks.
+    This test verifies the REAL flow by checking the messages list before LLM call.
     """
-    # Create agent
     agent = Agent(
         model="test-model",
         base_url="http://localhost:11434/v1",
         system_prompt="You are a helpful assistant.",
+        num_ctx=8192,
     )
 
     # History to inject
@@ -154,39 +153,39 @@ async def test_run_stream_includes_history_before_current_message(tmp_config, tm
         {"role": "assistant", "content": "Previous answer"},
     ]
 
-    # Mock the LLM call to capture what messages are sent
+    # Capture the actual messages sent to LLM (make a copy before modification)
     captured_messages = []
 
     async def mock_create(**kwargs):
-        captured_messages.append(kwargs.get("messages", []))
+        # Capture a COPY of messages (before they get modified)
+        messages_arg = kwargs.get("messages", [])
+        captured_messages.append(list(messages_arg))  # Copy!
 
-        # Return a mock completion
+        # Return a mock that looks like a completion
         class MockChoice:
             def __init__(self):
                 self.message = type("Msg", (), {"content": "New response", "tool_calls": None})
                 self.finish_reason = "stop"
-
         class MockCompletion:
             def __init__(self):
                 self.choices = [MockChoice()]
                 self.model = "test-model"
-
         return MockCompletion()
 
     with patch.object(agent, "_client") as mock_client:
         mock_client.return_value = AsyncMock()
         mock_client.return_value.chat.completions.create = mock_create
 
-        # Run with history - this should FAIL until history parameter is added
+        # Run with history
         async for event in agent.run_stream("Current question", history=history):
             pass
 
-    # Verify messages included history
-    assert len(captured_messages) > 0
+    # Verify the LLM was called with correct messages
+    assert len(captured_messages) > 0, "LLM was never called"
     messages = captured_messages[0]
 
     # Should be: [system, history[0], history[1], current_user]
-    assert len(messages) == 4
+    assert len(messages) == 4, f"Expected 4 messages, got {len(messages)}: {messages}"
     assert messages[0] == {"role": "system", "content": "You are a helpful assistant."}
     assert messages[1] == {"role": "user", "content": "Previous question"}
     assert messages[2] == {"role": "assistant", "content": "Previous answer"}
@@ -204,23 +203,20 @@ async def test_run_stream_without_history_uses_only_system_and_current(tmp_confi
         model="test-model",
         base_url="http://localhost:11434/v1",
         system_prompt="You are a helpful assistant.",
+        num_ctx=8192,
     )
 
     captured_messages = []
 
     async def mock_create(**kwargs):
-        captured_messages.append(kwargs.get("messages", []))
-
+        captured_messages.append(list(kwargs.get("messages", [])))  # Copy!
         class MockChoice:
             def __init__(self):
                 self.message = type("Msg", (), {"content": "Response", "tool_calls": None})
                 self.finish_reason = "stop"
-
         class MockCompletion:
             def __init__(self):
                 self.choices = [MockChoice()]
-                self.model = "test-model"
-
         return MockCompletion()
 
     with patch.object(agent, "_client") as mock_client:
@@ -232,7 +228,7 @@ async def test_run_stream_without_history_uses_only_system_and_current(tmp_confi
             pass
 
     messages = captured_messages[0]
-    assert len(messages) == 2
+    assert len(messages) == 2, f"Expected 2 messages, got {len(messages)}: {messages}"
     assert messages[0] == {"role": "system", "content": "You are a helpful assistant."}
     assert messages[1] == {"role": "user", "content": "Current question"}
 
@@ -387,25 +383,65 @@ async def test_shell_output_spills_over_when_exceeding_threshold(tmp_path):
     - In context: return reference like "[Shell output: 47KB, saved to spillover abc123]"
     - Spillover files in backend/db/spillover/
 
-    Should FAIL until shell.py implements spillover logic.
+    This test mocks subprocess to return large output, then verifies:
+    1. The result stdout contains a spillover reference (not the full output)
+    2. A spillover file was created with the large output
+
+    Note: This test will FAIL until shell.py calls spillover.maybe_spillover()
     """
     from backend.tools.shell import run_shell
     from backend.permissions import PermissionGate
+    from backend.tools.spillover import SPILLOVER_DIR, maybe_spillover
 
-    # Create a gate that always allows
+    # Create a gate (mock permission to always allow)
     gate = PermissionGate()
-    await gate._add_ephemeral_dir(str(tmp_path))
 
-    # Generate output > 4KB (the default threshold)
+    # Mock subprocess to return large output (>4KB threshold)
     large_output = "x" * 5000  # 5KB
 
-    # This test is tricky because run_shell() doesn't have spillover logic yet
-    # We're testing that the function SHOULD return a reference instead of inline output
-    # For now, we'll test the concept by checking if spillover handling exists
+    async def mock_create_subprocess_shell(*args, **kwargs):
+        """Mock subprocess that returns large output."""
+        class MockProc:
+            pid = 99999
+            returncode = 0
+            async def communicate(self):
+                return (large_output.encode(), b"")
+            async def wait(self):
+                pass
+            def kill(self):
+                pass
+        return MockProc()
 
-    # The actual test will need to mock subprocess to return large output
-    # and verify the result contains a spillover reference, not the full output
-    pytest.skip("Spillover logic not implemented yet - test written to spec")
+    # Patch subprocess creation and permission check
+    with patch("backend.tools.shell.asyncio.create_subprocess_shell", side_effect=mock_create_subprocess_shell):
+        with patch.object(gate, "check", return_value=type("Perm", (), {"allowed": True, "reason": "test"})()):
+            result = await run_shell(
+                "echo large output",
+                gate=gate,
+                working_dir=str(tmp_path),
+                on_pid=None,
+            )
+
+    # Verify result is a ShellResult
+    assert result.allowed is True
+
+    # Check if spillover was applied (this will FAIL until shell.py implements it)
+    # The stdout should be a spillover reference, not the full 5KB
+    if len(result.stdout) < 1000:
+        # Spillover was applied - verify reference format
+        assert "spillover" in result.stdout.lower() or "saved to" in result.stdout.lower()
+    else:
+        # Spillover NOT applied yet - test should FAIL
+        pytest.fail("Spillover not implemented: stdout contains full 5KB output instead of reference")
+
+    # Verify spillover file was created (if spillover was applied)
+    spillover_files = list(SPILLOVER_DIR.glob("*"))
+    assert len(spillover_files) > 0, "No spillover file created - spillover not implemented in shell.py"
+
+    # Verify the spillover file contains the large output
+    content = spillover_files[0].read_text()
+    assert len(content) == 5000
+    assert content == large_output
 
 
 async def test_shell_output_stays_inline_when_small(tmp_path):

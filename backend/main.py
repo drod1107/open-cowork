@@ -44,6 +44,18 @@ from .tools.registry import build_registry
 logger = logging.getLogger(__name__)
 
 
+async def _build_history(session_id: str) -> list[dict[str, Any]]:
+    """Load session messages and return as OpenAI-format message list.
+
+    Returns [] if session doesn't exist or has no messages.
+    """
+    session = await get_session(session_id)
+    if session is None:
+        return []
+    messages = session.get("messages") or []
+    return [{"role": m["role"], "content": m["content"]} for m in messages]
+
+
 FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
 
 
@@ -171,11 +183,13 @@ class HubState:
             base_url = base_url.rstrip("/") + "/v1"
         system_prompt = cfg.get("agent", {}).get("system_prompt", "")
         max_turns = int(cfg.get("agent", {}).get("max_turns", 50))
+        num_ctx = int(cfg.get("agent", {}).get("context_window", 8192))
         agent = Agent(
             model=model,
             base_url=base_url,
             system_prompt=system_prompt,
             max_turns=max_turns,
+            num_ctx=num_ctx,
         )
         agent.tools = build_registry(self.gate, working_dir=working_dir, on_shell_pid=self.add_shell_pid)
         return agent
@@ -378,9 +392,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 _sid = session_id
                 _is_new = is_new
 
+                history = await _build_history(_sid)
+
                 async def _run():
                     assistant_text = ""
-                    async for event in agent.run_stream(user_text):
+                    async for event in agent.run_stream(user_text, history=history):
                         etype = event.get("type")
                         if etype == "tool_call":
                             logger.info("ws event: tool_call %s", event.get("tool"))
