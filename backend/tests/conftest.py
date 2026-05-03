@@ -15,17 +15,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "system_prompt": "you are a test",
     },
     "runtime": {"working_dir": "."},
+    "tools": {
+        "shell": True,
+    },
     "permissions": {
-        "filesystem": {"default": "ask", "allowed_dirs": [], "blocked_dirs": []},
         "shell": {
-            "default": "ask",
-            "allowed_commands": ["echo *", "ls*", "pwd"],
-            "blocked_commands": ["rm -rf /*"],
+            "allowed_commands": ["ls*", "pwd", "echo*", "cat*", "grep", "git status", "git diff*"],
+            "blocked_commands": ["rm -rf /*", "mkfs*", "dd if=*", ":(){:|:&};:"],
         },
-        "web": {"search": "allow", "fetch": "ask"},
-        "browser": {"default": "ask"},
-        "computer_use": {"default": "ask"},
-        "coding": {"default": "ask", "git_commit": "ask"},
     },
 }
 

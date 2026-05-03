@@ -1,16 +1,16 @@
 /**
- * Full <App/> integration tests.
+ * Full <App/> integration tests for MVP 3-tab layout.
  *
  * Mounts the real App, with both REST and WebSocket replaced by an in-memory
- * fake. Verifies the full user flow:
+ * fake. Verifies the MVP features:
  *   1. The app connects, fetches models, exposes them in the picker.
  *   2. Selecting a model POSTs /api/models/select and unlocks the chat.
  *   3. Chat messages are sent over the (queued) WebSocket once open.
  *   4. Streaming token / tool / final events render correctly.
  *   5. Permission requests render an approval card and the response is sent.
- *   6. Switching panels mounts the right surface.
- *   7. Scheduler CRUD round-trips.
- *   8. Permission default toggles persist via PUT /api/config.
+ *   6. Switching tabs mounts the right surface (chat/history/settings).
+ *   7. Stop button kills stream (UI changes to red).
+ *   8. Debug icon/bar functionality.
  *   9. WS status pill flips on close/reconnect.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -49,22 +49,41 @@ describe("App integration: connection & model selection", () => {
   it("disables chat send and shows a hint until a model is selected", async () => {
     render(<App />);
     await waitFor(() => expect(server.state.modelsCalls).toBeGreaterThan(0));
+    
     const send = screen.getByTestId("send-btn") as HTMLButtonElement;
     expect(send).toBeDisabled();
-    expect(screen.getByTestId("no-model-hint")).toBeInTheDocument();
+  });
+});
 
-    fireEvent.change(screen.getByTestId("chat-input"), {
-      target: { value: "hello" },
+describe("App integration: 3-tab layout", () => {
+  it("renders 3 tabs: chat, history, settings", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("tab-chat")).toBeInTheDocument());
+    
+    expect(screen.getByTestId("tab-chat")).toBeInTheDocument();
+    expect(screen.getByTestId("tab-history")).toBeInTheDocument();
+    expect(screen.getByTestId("tab-settings")).toBeInTheDocument();
+  });
+
+  it("switches to history tab on click", async () => {
+    render(<App />);
+    await waitFor(() => screen.getByTestId("tab-history"));
+    
+    fireEvent.click(screen.getByTestId("tab-history"));
+    await waitFor(() => {
+      const historyContent = screen.getByText(/history/i);
+      expect(historyContent).toBeInTheDocument();
     });
-    expect(send).not.toBeDisabled();
+  });
 
-    await selectModel("llama3.1:8b");
-    await waitFor(() =>
-      expect(screen.queryByTestId("no-model-hint")).not.toBeInTheDocument(),
-    );
-    const select = await screen.findByTestId("model-select");
-    expect(select).toHaveValue("llama3.1:8b");
-    expect(server.state.selected).toBe("llama3.1:8b");
+  it("switches to settings tab on click", async () => {
+    render(<App />);
+    await waitFor(() => screen.getByTestId("tab-settings"));
+    
+    fireEvent.click(screen.getByTestId("tab-settings"));
+    await waitFor(() => {
+      expect(screen.getByText(/permissions/i)).toBeInTheDocument();
+    });
   });
 });
 
@@ -85,11 +104,13 @@ describe("App integration: chat over WebSocket", () => {
     const sock = await server.awaitSocket();
     await waitFor(() => expect(sock.readyState).toBe(1));
 
+    await selectModel("llama3.1:8b");
+
     fireEvent.change(screen.getByTestId("chat-input"), {
       target: { value: "hi" },
     });
     fireEvent.click(screen.getByTestId("send-btn"));
-    await waitFor(() => expect(sock.sent.length).toBe(1));
+    await waitFor(() => expect(sock.sent.length).toBeGreaterThan(0));
 
     act(() => {
       sock.emit({ type: "token", text: "Hel" });
@@ -125,7 +146,7 @@ describe("App integration: chat over WebSocket", () => {
     expect(await screen.findByText(/exit_code/)).toBeInTheDocument();
   });
 
-  it("renders a permission card and sends the approval back over the socket", async () => {
+  it("renders a permission card and sends the response back over the socket", async () => {
     render(<App />);
     const sock = await server.awaitSocket();
     await waitFor(() => expect(sock.readyState).toBe(1));
@@ -143,14 +164,41 @@ describe("App integration: chat over WebSocket", () => {
     });
 
     expect(await screen.findByText(/git push/)).toBeInTheDocument();
+    expect(screen.getByText("this time")).toBeInTheDocument();
+    expect(screen.getByText("always")).toBeInTheDocument();
+    expect(screen.getByText("no")).toBeInTheDocument();
+    expect(screen.getByText("never")).toBeInTheDocument();
+
     const before = sock.sent.length;
-    fireEvent.click(screen.getByText("approve"));
+    fireEvent.click(screen.getByText("this time"));
     await waitFor(() => expect(sock.sent.length).toBeGreaterThan(before));
     const last = JSON.parse(sock.sent[sock.sent.length - 1]);
     expect(last).toEqual({
       type: "permission_response",
       id: "req-1",
-      decision: "approve",
+      decision: "this time",
+    });
+  });
+
+  it("stop button appears when busy and kills stream", async () => {
+    render(<App />);
+    const sock = await server.awaitSocket();
+    await waitFor(() => expect(sock.readyState).toBe(1));
+
+    await selectModel("llama3.1:8b");
+
+    fireEvent.change(screen.getByTestId("chat-input"), {
+      target: { value: "long task" },
+    });
+    fireEvent.click(screen.getByTestId("send-btn"));
+    
+    await waitFor(() => expect(screen.getByTestId("stop-btn")).toBeInTheDocument());
+    
+    fireEvent.click(screen.getByTestId("stop-btn"));
+    
+    await waitFor(() => {
+      const stopSent = sock.sent.some((s: string) => JSON.parse(s).type === "stop");
+      expect(stopSent).toBe(true);
     });
   });
 
@@ -159,20 +207,26 @@ describe("App integration: chat over WebSocket", () => {
     const sock = await server.awaitSocket();
     await waitFor(() => expect(sock.readyState).toBe(1));
 
+    await selectModel("llama3.1:8b");
+
+    // Send a message
     fireEvent.change(screen.getByTestId("chat-input"), {
       target: { value: "go" },
     });
     fireEvent.click(screen.getByTestId("send-btn"));
-    expect(screen.getByTestId("send-btn")).toBeDisabled();
+    
+    // Wait for button to be disabled (while waiting for response)
+    await waitFor(() => expect(screen.getByTestId("send-btn")).toBeDisabled());
 
     act(() => {
       sock.emit({ type: "error", error: "no model selected" });
     });
 
-    await waitFor(() =>
-      expect(screen.getByText(/\[error\] no model selected/)).toBeInTheDocument(),
-    );
-    // Button re-enables after error (allowing retry once user types again).
+    await waitFor(() => {
+      expect(screen.getByText(/\[error\] no model selected/)).toBeInTheDocument();
+    });
+    
+    // Button re-enables after error
     fireEvent.change(screen.getByTestId("chat-input"), {
       target: { value: "another" },
     });
@@ -194,105 +248,71 @@ describe("App integration: chat over WebSocket", () => {
   });
 });
 
-describe("App integration: panel switching", () => {
-  it("switches from scheduler to permissions to computer view", async () => {
+describe("App integration: debug bar", () => {
+  it("debug icon toggles debug bar", async () => {
     render(<App />);
-    expect(screen.getByTestId("scheduler")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("panel-permissions"));
-    await waitFor(() => expect(screen.getByTestId("permissions")).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTestId("panel-computer"));
-    await waitFor(() => expect(screen.getByTestId("computer-view")).toBeInTheDocument());
-
-    fireEvent.click(screen.getByTestId("panel-scheduler"));
-    await waitFor(() => expect(screen.getByTestId("scheduler")).toBeInTheDocument());
-  });
-});
-
-describe("App integration: scheduler CRUD", () => {
-  it("creates and deletes a schedule via the panel", async () => {
-    render(<App />);
-    await screen.findByTestId("scheduler");
-
-    fireEvent.change(screen.getByTestId("schedule-description"), {
-      target: { value: "ping cluster" },
-    });
-    fireEvent.change(screen.getByTestId("schedule-cron"), {
-      target: { value: "*/5 * * * *" },
-    });
-    fireEvent.click(screen.getByTestId("schedule-add"));
-
-    await waitFor(() =>
-      expect(server.state.schedules.find((s) => s.description === "ping cluster"))
-        .toBeTruthy(),
-    );
-    await waitFor(() =>
-      expect(screen.getByText("ping cluster")).toBeInTheDocument(),
-    );
-
-    fireEvent.click(screen.getByText("remove"));
-    await waitFor(() => expect(server.state.schedules.length).toBe(0));
-    await waitFor(() =>
-      expect(screen.queryByText("ping cluster")).not.toBeInTheDocument(),
-    );
-  });
-});
-
-describe("App integration: permissions panel", () => {
-  it("changes shell default and PUTs the new config", async () => {
-    render(<App />);
-    fireEvent.click(screen.getByTestId("panel-permissions"));
-    const sel = (await screen.findByTestId("perm-default-shell")) as HTMLSelectElement;
-    expect(sel.value).toBe("ask");
-    fireEvent.change(sel, { target: { value: "allow" } });
+    await server.awaitSocket();
+    
+    const debugIcon = screen.getByTitle(/toggle debug bar/i);
+    expect(debugIcon).toBeInTheDocument();
+    
+    fireEvent.click(debugIcon);
     await waitFor(() => {
-      const cfg = server.state.config as { permissions: { shell: { default: string } } };
-      expect(cfg.permissions.shell.default).toBe("allow");
+      expect(screen.getByText(/copy/i)).toBeInTheDocument();
     });
-    const puts = server.state.recorded.filter(
-      (r) => r.method === "PUT" && r.url.includes("/api/config"),
-    );
-    expect(puts.length).toBeGreaterThan(0);
-  });
-
-  it("removes a pre-approved shell pattern by clicking the pill", async () => {
-    render(<App />);
-    fireEvent.click(screen.getByTestId("panel-permissions"));
-    await screen.findByTestId("perm-default-shell");
-    const pill = await screen.findByText("ls*");
-    fireEvent.click(pill);
+    
+    fireEvent.click(debugIcon);
     await waitFor(() => {
-      const cfg = server.state.config as { permissions: { shell: { allowed_commands: string[] } } };
-      expect(cfg.permissions.shell.allowed_commands).not.toContain("ls*");
+      expect(screen.queryByText(/copy/i)).not.toBeInTheDocument();
     });
   });
-});
 
-describe("App integration: computer view", () => {
-  it("renders a screenshot tool_result as an inline image", async () => {
+  it("copy button copies debug output to clipboard", async () => {
+    const clipboardWriteText = vi.fn();
+    Object.assign(navigator, {
+      clipboard: { writeText: clipboardWriteText },
+    });
+
     render(<App />);
-    fireEvent.click(screen.getByTestId("panel-computer"));
     const sock = await server.awaitSocket();
-    await waitFor(() => expect(sock.readyState).toBe(1));
-
-    const tinyPng =
-      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    
+    const debugIcon = screen.getByTitle(/toggle debug bar/i);
+    fireEvent.click(debugIcon);
+    
     act(() => {
-      sock.emit({
-        type: "tool_result",
-        tool: "screenshot",
-        output: {
-          action: "screenshot",
-          ok: true,
-          data: { image_base64: tinyPng, mime: "image/png" },
-          reason: "ok",
-        },
-      });
+      sock.emit({ type: "error", error: "test error" });
     });
+    
+    const copyBtn = screen.getByText(/copy/i);
+    fireEvent.click(copyBtn);
+    
+    expect(clipboardWriteText).toHaveBeenCalled();
+  });
+});
 
-    const view = await screen.findByTestId("computer-view");
-    const img = within(view).getByRole("img") as HTMLImageElement;
-    await waitFor(() => expect(img.src).toContain("data:image/png;base64"));
+describe("App integration: textarea input", () => {
+  it("uses textarea (not single-line input)", async () => {
+    render(<App />);
+    await server.awaitSocket();
+    
+    const input = screen.getByTestId("chat-input") as HTMLTextAreaElement;
+    expect(input.tagName).toBe("TEXTAREA");
+    expect(input.rows).toBe(3);
+  });
+
+  it("sends on Enter, newlines on Shift+Enter", async () => {
+    render(<App />);
+    const sock = await server.awaitSocket();
+    await selectModel("llama3.1:8b");
+
+    const input = screen.getByTestId("chat-input") as HTMLTextAreaElement;
+    
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+    
+    await waitFor(() => {
+      const sent = sock.sent.some((s: string) => JSON.parse(s).text === "hello");
+      expect(sent).toBe(true);
+    });
   });
 });

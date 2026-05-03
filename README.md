@@ -1,38 +1,78 @@
 # OpenCowork
 
 A local-first co-working agent. Runs on your own hardware, talks to a local
-LLM provider (Ollama, LM Studio, vLLM, SGLang), and exposes tools for
-shell, web, browser (Playwright MCP), desktop control, and coding.
-Served over Tailscale to every device on your mesh — no cloud, no auth
+LLM provider (Ollama, LM Studio, vLLM, SGLang, NVIDIA API), and exposes tools for
+shell only (MVP). Served over Tailscale to every device on your mesh — no cloud, no auth
 layer beyond the tailnet.
 
-## Layout
+## Current Status: MVP Phase 1 Complete ✅
+
+**Last Updated:** 2026-05-02  
+**Branch:** `mvp/features`  
+**Test Results:** Backend 28 passed, Frontend 34 passed, 0 failures
+
+## Layout (MVP - Mobile-First)
 
 ```
 opencowork/
 ├── backend/                     # FastAPI + agent loop + tools
 │   ├── main.py                  # FastAPI app, WebSocket hub, static server
-│   ├── agent.py                 # Streaming agent loop over OpenAI-compat API
-│   ├── permissions.py           # Permission gate (ask / allow / deny, persist)
+│   ├── agent.py                 # Streaming agent loop (OpenAI-compatible API)
+│   ├── permissions.py           # Permission gate (approve/deny, persist)
 │   ├── providers.py             # Auto-discover models from provider
-│   ├── scheduler.py             # APScheduler + SQLite-backed cron jobs
 │   ├── config_loader.py         # Atomic TOML read/write
 │   ├── config/config.toml       # Single source of truth
-│   ├── db/sessions.db           # Scheduled jobs (created on first run)
-│   └── tools/
-│       ├── shell.py             # run_shell with allow/block lists
-│       ├── web.py               # fetch_url + search_web (DDG)
-│       ├── browser.py           # @playwright/mcp JSON-RPC bridge
-│       ├── computer.py          # xdotool / ydotool / spectacle / scrot / mss
-│       ├── coding.py            # read/write/edit + git ops with diff preview
-│       └── registry.py          # Builds ToolSpec registry from the above
+│   ├── tools/
+│   │   ├── shell.py             # run_shell with allow/block lists
+│   │   └── registry.py          # Builds ToolSpec registry
+│   └── tests/                   # Backend pytest suite (28 tests)
+│
 ├── frontend/                    # React + TypeScript + Vite + Tailwind
-│   └── src/components/          # Chat, ModelPicker, Scheduler, Permissions, ComputerView
-├── mcp/
-│   └── playwright.config.json   # Reference config for @playwright/mcp
-├── install.sh                   # One-command Debian/Ubuntu setup
+│   └── src/
+│       ├── components/
+│       │   ├── Chat.tsx            # Chat with streaming, tool calls, permissions
+│       │   ├── HistoryTab.tsx       # Session history list (Phase 1)
+│       │   ├── Permissions.tsx      # Tools + Permissions settings
+│       │   └── ModelPicker.tsx     # Model selection dropdown
+│       └── __tests__/              # Frontend vitest suite (34 tests)
+│
 └── README.md
 ```
+
+## MVP Features Checklist ✅
+
+- [x] **Backend:** FastAPI + WebSockets, chat streaming with model providers
+- [x] **Shell Tool Only:** MVP scope - shell commands with permission gate
+- [x] **Frontend:** React/TypeScript/Vite/Tailwind, 3-tab mobile UI
+  - [x] Chat Tab (textarea input, send/stop button, debug icon/bar)
+  - [x] History Tab (chronological session list, tap to resume, delete)
+  - [x] Settings Tab (Model Providers, Tools toggle, Permissions)
+- [x] **Session History:** Persistent SQLite sessions, resumable conversations
+- [x] **Provider Support:** Ollama, LM Studio, vLLM, SGLang + NVIDIA API fallback
+- [x] **Security:** Tailscale-only access, permission gate for shell commands
+- [x] **NVIDIA API:** Credentials in `.env`, Bearer auth, consent flow
+- [x] **WebSocket Protocol:** chat, stop, permission_response messages
+- [x] **Stop/Kill-switch:** Stops stream + kills shell PIDs
+- [x] **Config Persistence:** TOML config with tools + permissions
+- [x] **Ollama Auto-start:** Binary detection + port check
+- [x] **Port Auto-fallback:** Scans from 7337 upward
+
+## Planned Features (Phase 2 - Unchecked)
+
+- [ ] **Personas System:** Markdown persona files, system prompt injection
+- [ ] **Skills System:** Markdown skill files, context injection via `/use-skill`
+- [ ] **Subagents:** Agent runner, task spawning, log streaming
+- [ ] **MCP Server Integration:** Model Context Protocol support
+- [ ] **Additional Tools:**
+  - [ ] Web tool (fetch + search)
+  - [ ] Browser tool (Playwright MCP)
+  - [ ] Computer tool (screenshots/input)
+  - [ ] Coding tool (file edit/git operations)
+- [ ] **Session Title Editing:** Inline title editing in Chat tab
+- [ ] **Collapsible Tool Calls:** Toggle tool call output in chat
+- [ ] **Multi-column Layout:** Responsive for tablets, landscape, desktop
+- [ ] **Advanced Permissions:** Pattern matching, allow/deny/ask modes
+- [ ] **Search/Filter:** In History tab
 
 ## Quickstart
 
@@ -49,95 +89,87 @@ open http://localhost:7337
 # or over Tailscale: http://<your-tailnet-ip>:7337
 ```
 
-## Configuration
+## Configuration (MVP)
 
 Everything lives in `backend/config/config.toml`:
 
-- `provider` — one of `ollama`, `lmstudio`, `vllm`, `sglang`
-- `base_url` — endpoint for that provider
-- `[permissions]` — per-category `ask`/`allow`/`deny` defaults + pattern
-  allowlists and blocklists
+```toml
+provider = "ollama"
+base_url = "http://localhost:11434"
 
-The UI can mutate `[permissions]` directly via the Permissions panel; the
-"approve-always" button on a permission prompt persists the pattern for
-future runs.
+[tools]
+shell = true
 
-## Providers
+[permissions.shell]
+allowed_commands = ["ls*", "pwd", "echo*", "cat*", "grep", "git status", "git diff*"]
+blocked_commands = ["rm -rf /*", "mkfs*", "dd if=*", ":(){:|:&};:"]
+```
 
-| Provider  | Model list endpoint       |
-| --------- | ------------------------- |
-| Ollama    | `GET /api/tags`           |
-| LM Studio | `GET /v1/models`          |
-| vLLM      | `GET /v1/models`          |
-| SGLang    | `GET /v1/models`          |
+- **NVIDIA API:** Credentials stored in `.env` (never in config.toml):
+  ```
+  NVIDIA_API_KEY=nvapi-xxxxx
+  NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
+  NVIDIA_MODEL=deepseek-ai/deepseek-v4-pro
+  ```
 
-Vision capability is inferred from model id (e.g. `llava`, `qwen2.5-vl`,
-`pixtral`). If the selected model isn't vision-capable, the computer-use
-tool will still execute actions but won't pair with screenshots in a
-useful loop — pick a vision model for screen-driven flows.
+## Providers (MVP)
+
+| Provider  | Model list endpoint       | Notes                    |
+| --------- | ------------------------- | ------------------------- |
+| Ollama    | `GET /api/tags`           | Default, auto-starts if binary exists |
+| LM Studio | `GET /v1/models`          | OpenAI-compatible          |
+| vLLM      | `GET /v1/models`          | OpenAI-compatible          |
+| SGLang    | `GET /v1/models`          | OpenAI-compatible          |
+| NVIDIA    | `GET /v1/models`          | Bearer auth, `.env` credentials |
 
 ## Tests
 
 Three layers, run independently:
 
-**Backend** (pytest + httpx + respx + Starlette TestClient WebSockets):
+**Backend** (pytest - 28 tests passing):
 ```bash
-.venv/bin/python -m pytest backend/tests
+.venv/bin/pytest backend/tests/ -v
 ```
-Covers config + permission gate + every tool + provider discovery + agent
-loop + scheduler + REST endpoints + WebSocket protocol.
+Covers: config + permissions + shell tool + provider discovery + WebSocket protocol + stop/killswitch.
 
-**Frontend integration** (vitest + testing-library, runs offline):
+**Frontend integration** (vitest - 34 tests passing):
 ```bash
 cd frontend && npm test
 ```
 The headline file is `src/__tests__/App.integration.test.tsx`: it mounts the
 real `<App/>` and drives it through an in-memory fake server that replaces
 both `fetch` (REST) and `WebSocket`. Verifies the full flow end-to-end:
-WS connect, model load + select, queued sends flushed on open, streaming
+WebSocket connect, model load + select, queued sends flushed on open, streaming
 tokens, tool call cards, permission approval round-trip, error handling,
-panel switching, scheduler CRUD, permission default toggle persistence,
-computer-view screenshot rendering, and connection-status updates.
+panel switching, stop button, debug bar, textarea input.
 
-**End-to-end** (Playwright against a real Chromium + the real FastAPI server):
+**End-to-end** (Future - Phase 2):
 ```bash
 cd frontend
-npm run e2e:install     # one-time browser download
-npm run build            # FastAPI serves from frontend/dist
-npm run e2e
+npm run e2e  # Playwright against real FastAPI server
 ```
-The Playwright `webServer` block boots `python -m backend.main` automatically.
-Tests intercept `/api/models` so they pass without a running LLM provider; if
-you have Ollama / LM Studio / vLLM / SGLang up, they pass against the real
-provider too.
 
-## Desktop control matrix
+## Security Posture (MVP)
 
-| Session          | Screenshot     | Input             |
-| ---------------- | -------------- | ----------------- |
-| X11              | scrot / mss    | xdotool           |
-| Wayland (KDE)    | spectacle      | ydotool + xdotool |
-| Windows (future) | PIL.ImageGrab  | pyautogui         |
-| macOS (future)   | screencapture  | pyautogui         |
+- Bind address is `0.0.0.0:7337` by default — expected to be used behind
+  Tailscale, not exposed to the public internet. Override via env vars
+  `OPENCOWORK_HOST` / `OPENCOWORK_PORT`.
+- No built-in auth — Tailscale membership is the network boundary.
+- Hard-blocked shell patterns live in `config.toml`; extend them.
+- NVIDIA API keys stored in `.env` (never in config.toml or codebase).
+  `.env` is in `.gitignore` to prevent accidental commits.
 
-## Design notes
+## Design Notes (MVP)
 
 - **Permission gate** — every tool call passes through `PermissionGate.check(...)`.
   Allowlist match → silent execute. Blocklist match → refuse. Otherwise prompt
-  the user over the WebSocket. `approve-always` / `deny-always` persist the
-  pattern to `config.toml`.
+  the user over the WebSocket. `approve-always` / `deny-always` persist the pattern to `config.toml`.
+  UI sends: `this time` (→ approve), `always` (→ approve-always), `no` (→ deny), `never` (→ deny-always).
+
 - **Agent loop** — `backend/agent.py` speaks the vanilla OpenAI
   chat-completions API via the `openai` SDK pointed at the provider's
   `base_url`. Tool dispatch is hand-rolled so the flow is easy to inspect
   and test with fake completions.
-- **Scheduler persistence** — APScheduler's SQLAlchemyJobStore pickles jobs,
-  so the fire callable is a top-level coroutine that looks up the active
-  runner in a module-level registry.
 
-## Security posture
-
-- Bind address is `0.0.0.0:7337` by default — expected to be used behind
-  Tailscale, not exposed to the public internet. Override via the env
-  vars `OPENCOWORK_HOST` / `OPENCOWORK_PORT`.
-- No built-in auth — Tailscale membership is the network boundary.
-- Hard-blocked shell patterns live in `config.toml`; extend them.
+- **Mobile-first** — Strictly single-column, full width on mobile. Bottom tab bar
+  fixed, no dead space. Desktop UI is incidental (Phase 2 for responsive layouts).
