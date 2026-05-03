@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Chat from "./components/Chat";
+import HistoryTab from "./components/HistoryTab";
 import Permissions from "./components/Permissions";
 import ModelPicker from "./components/ModelPicker";
 import { AgentSocket } from "./lib/ws";
@@ -47,7 +48,14 @@ export default function App() {
       {/* Main content area - scrollable */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {tab === "chat" && <Chat socket={socket} hasModel={!!selectedModel} />}
-        {tab === "history" && <div className="p-3 text-xs text-slate-500">History tab - coming next</div>}
+        {tab === "history" && <HistoryTab onSelect={(id) => {
+          // Switch to chat tab and load session
+          setTab("chat");
+          // TODO: Load session history
+        }} onDelete={(id) => {
+          // TODO: Call API to delete session
+          console.log("Delete session", id);
+        }} />}
         {tab === "settings" && <Permissions />}
       </div>
 

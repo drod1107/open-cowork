@@ -194,25 +194,24 @@ export default function Chat({ socket, hasModel = true }: ChatProps) {
             }}
             data-testid="chat-input"
           />
-          <div className="flex flex-col gap-1">
-            {busy ? (
-              <button
-                className="bg-red-600 hover:bg-red-500 text-white rounded-md px-3 py-2 text-sm h-1/2"
-                onClick={stop}
-                data-testid="stop-btn"
-              >
-                Stop
-              </button>
-            ) : (
-              <button
-                className="bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 py-2 text-sm h-1/2 disabled:opacity-50"
-                onClick={send}
-                disabled={!input.trim()}
-                data-testid="send-btn"
-              >
-                Send
-              </button>
-            )}
+<div className="flex flex-col gap-1 relative">
+      <button
+        className="bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 py-2 text-sm h-1/2 disabled:opacity-50"
+        onClick={send}
+        disabled={busy || !input.trim()}
+        data-testid="send-btn"
+      >
+        Send
+      </button>
+      {busy && (
+        <button
+          className="absolute top-0 left-0 right-0 bg-red-600 hover:bg-red-500 text-white rounded-md px-3 py-2 text-sm h-1/2"
+          onClick={stop}
+          data-testid="stop-btn"
+        >
+          Stop
+        </button>
+      )}
             <button
               className="text-slate-500 hover:text-slate-300 h-1/4 text-xs"
               onClick={() => setDebugOpen((o) => !o)}
@@ -274,7 +273,7 @@ function ChatCard({
   if (item.kind === "error") {
     return (
       <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-200">
-        {item.text}
+        [error] {item.text}
       </div>
     );
   }

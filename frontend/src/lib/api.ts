@@ -24,4 +24,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(config),
     }).then((r) => json<{ ok: boolean }>(r)),
+
+  listSessions: () =>
+    fetch("/api/sessions").then((r) =>
+      json<{ sessions: Array<{ id: string; metadata: { title?: string }; updated_at: string }> }>(r),
+    ),
+
+  deleteSession: (id: string) =>
+    fetch(`/api/sessions/${id}`, { method: "DELETE" }).then((r) =>
+      json<{ ok: boolean }>(r),
+    ),
 };

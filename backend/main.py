@@ -117,11 +117,19 @@ class HubState:
         finally:
             self._pending_permissions.pop(request.request_id, None)
 
+    _UI_TO_BACKEND_DECISION = {
+        "this time": "approve",
+        "always": "approve-always",
+        "no": "deny",
+        "never": "deny-always",
+    }
+
     def resolve_permission(self, request_id: str, decision: str) -> bool:
+        mapped = self._UI_TO_BACKEND_DECISION.get(decision, decision)
         future = self._pending_permissions.get(request_id)
         if future is None or future.done():
             return False
-        future.set_result({"decision": decision})
+        future.set_result({"decision": mapped})
         return True
 
     # ------------------------------------------------------ model selection
