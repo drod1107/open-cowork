@@ -6,11 +6,13 @@ class FakeWS {
   public readyState = 0;
   public onmessage: ((e: MessageEvent) => void) | null = null;
   public onclose: (() => void) | null = null;
+  public onopen: (() => void) | null = null;
   public sent: string[] = [];
   constructor(public url: string) {
     FakeWS.instances.push(this);
     queueMicrotask(() => {
       this.readyState = 1;
+      this.onopen?.();
     });
   }
   send(data: string) {
@@ -40,7 +42,9 @@ describe("AgentSocket", () => {
     sock.connect();
     await Promise.resolve();
     const ws = FakeWS.instances[0];
-    ws.onmessage?.({ data: JSON.stringify({ type: "pong" }) } as MessageEvent);
+    ws.onmessage?.({
+      data: JSON.stringify({ type: "pong" }),
+    } as MessageEvent);
     expect(events).toContainEqual({ type: "pong" });
   });
 
@@ -54,5 +58,34 @@ describe("AgentSocket", () => {
     vi.advanceTimersByTime(1500);
     expect(FakeWS.instances.length).toBe(2);
     vi.useRealTimers();
+  });
+
+  it("sends stop message correctly", async () => {
+    const sock = new AgentSocket();
+    sock.connect();
+    await Promise.resolve();
+    const ws = FakeWS.instances[0];
+    sock.send({ type: "stop" });
+    expect(ws.sent).toContainEqual(JSON.stringify({ type: "stop" }));
+  });
+
+  it("sends chat message correctly", async () => {
+    const sock = new AgentSocket();
+    sock.connect();
+    await Promise.resolve();
+    const ws = FakeWS.instances[0];
+    sock.send({ type: "chat", text: "hello" });
+    expect(ws.sent).toContainEqual(JSON.stringify({ type: "chat", text: "hello" }));
+  });
+
+  it("sends permission_response correctly", async () => {
+    const sock = new AgentSocket();
+    sock.connect();
+    await Promise.resolve();
+    const ws = FakeWS.instances[0];
+    sock.send({ type: "permission_response", id: "req-1", decision: "this time" });
+    expect(ws.sent).toContainEqual(
+      JSON.stringify({ type: "permission_response", id: "req-1", decision: "this time" })
+    );
   });
 });

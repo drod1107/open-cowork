@@ -44,7 +44,7 @@ describe("Chat", () => {
     expect(screen.getByText("Hello!")).toBeInTheDocument();
   });
 
-  it("renders a permission card and replies on approve", () => {
+  it("renders a permission card and replies on 'this time'", () => {
     const socket = new MockSocket();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     render(<Chat socket={socket as any} />);
@@ -60,11 +60,80 @@ describe("Chat", () => {
       });
     });
     expect(screen.getByText(/git push/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText("approve"));
+    fireEvent.click(screen.getByText("this time"));
     expect(socket.sent).toContainEqual({
       type: "permission_response",
       id: "req-1",
-      decision: "approve",
+      decision: "this time",
+    });
+  });
+
+  it("replies with 'always' decision", () => {
+    const socket = new MockSocket();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render(<Chat socket={socket as any} />);
+    act(() => {
+      socket.emit({
+        type: "permission_request",
+        request: {
+          id: "req-2",
+          category: "shell",
+          action: "ls -la",
+          description: "list files",
+        },
+      });
+    });
+    fireEvent.click(screen.getByText("always"));
+    expect(socket.sent).toContainEqual({
+      type: "permission_response",
+      id: "req-2",
+      decision: "always",
+    });
+  });
+
+  it("replies with 'no' decision", () => {
+    const socket = new MockSocket();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render(<Chat socket={socket as any} />);
+    act(() => {
+      socket.emit({
+        type: "permission_request",
+        request: {
+          id: "req-3",
+          category: "shell",
+          action: "rm -rf /",
+          description: "dangerous command",
+        },
+      });
+    });
+    fireEvent.click(screen.getByText("no"));
+    expect(socket.sent).toContainEqual({
+      type: "permission_response",
+      id: "req-3",
+      decision: "no",
+    });
+  });
+
+  it("replies with 'never' decision (adds to blocked list)", () => {
+    const socket = new MockSocket();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render(<Chat socket={socket as any} />);
+    act(() => {
+      socket.emit({
+        type: "permission_request",
+        request: {
+          id: "req-4",
+          category: "shell",
+          action: "curl malicious.com",
+          description: "fetch external content",
+        },
+      });
+    });
+    fireEvent.click(screen.getByText("never"));
+    expect(socket.sent).toContainEqual({
+      type: "permission_response",
+      id: "req-4",
+      decision: "never",
     });
   });
 });
