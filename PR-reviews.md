@@ -820,6 +820,61 @@ Commit `ed544d0` ("Fix stop button: PID tracking, CancelledError handling, SIGTE
 
 ---
 
+### Context Awareness Test Suite (2026-05-03)
+
+**Source:** Dev-Plan.md:321-471 (Context Awareness System design)
+
+**Written to spec (TDD):** All tests FAIL until dev implements features.
+
+**Test File:** `backend/tests/test_context_awareness.py` (14 tests, 11 FAIL, 2 PASS, 3 SKIP)
+
+**Tests by Component:**
+
+1. **History Injection (Critical Path)** — 6 tests:
+   - `test_build_history_returns_messages_in_openai_format` — **FAILS** ( `_build_history()` not in main.py)
+   - `test_build_history_returns_empty_list_for_no_messages` — **FAILS** (same)
+   - `test_build_history_returns_empty_list_for_invalid_session` — **FAILS** (same)
+   - `test_run_stream_includes_history_before_current_message` — **FAILS** (`history` param not in `run_stream()`)
+   - `test_run_stream_without_history_uses_only_system_and_current` — **FAILS** (same)
+   - `test_websocket_injects_history_on_chat_message` — **FAILS** (integration test, needs `_build_history()`)
+
+2. **num_ctx Maximization** — 3 tests:
+   - `test_agent_sets_num_ctx_from_config` — **FAILS** (`num_ctx` attribute not on Agent)
+   - `test_num_ctx_default_value` — **FAILS** (same)
+   - `test_num_ctx_only_applied_for_ollama` — **FAILS** (same, plus Ollama check logic)
+
+3. **Tool Result Spillover** — 2 tests (SKIPPED, logic not started):
+   - `test_shell_output_spills_over_when_exceeding_threshold` — **SKIPPED**
+   - `test_shell_output_stays_inline_when_small` — **SKIPPED**
+
+4. **read_chunk Tool** — 1 test:
+   - `test_read_chunk_tool_reads_spillover` — **FAILS** (`read_chunk` not in registry)
+
+5. **Context Compaction** — 2 tests (SKIPPED, logic not started):
+   - `test_compaction_triggers_when_token_budget_exceeded` — **SKIPPED**
+   - `test_compaction_preserves_recent_turns` — **SKIPPED**
+
+6. **Smart Token Budgeting** — 2 tests:
+   - `test_estimate_tokens_rough_count` — **FAILS** (`_estimate_tokens()` not in agent.py)
+   - `test_context_window_setting_in_config` — **PASSES** (config reading works)
+
+**Lessons Learned from Stop-Button Miss Applied:**
+1. ✅ Tests FAIL until feature is implemented (TDD)
+2. ✅ Comments explain WHY we're testing (reference Dev-Plan.md lines)
+3. ✅ Test REAL flows (e.g., `run_stream()` captures actual messages sent to LLM)
+4. ✅ Specific about what's being tested (not generic "test history")
+5. ✅ Edge cases: empty history, invalid session, Ollama-only num_ctx
+
+**Dev Team Next Steps:**
+1. Implement `_build_history(session_id)` in `main.py` (use `get_session()` from sessions.py)
+2. Add `history: list[dict] = None` parameter to `Agent.run_stream()`
+3. Add `num_ctx` to Agent, pass via `extra_body` for Ollama only
+4. Create `read_chunk` tool in `backend/tools/`
+5. Implement spillover logic in `shell.py`
+6. Implement compaction logic in `main.py`
+
+---
+
 ### QA Test Suite Audit (2026-05-03)
 
 **Backend Tests:**
@@ -908,3 +963,55 @@ it("multiple errors accumulate in debug bar", async () => {
 
 ---
 
+
+### Dev Fix Commit: ed544d0 (2026-05-03)
+**Date:** 2026-05-03
+**Time:** 10:15
+**Testing Method:** Backend pytest + Frontend vitest
+
+**Three bugs fixed:**
+
+1. **Stop button doesn't kill subprocess** — `add_shell_pid()` defined on HubState but never called from runtime. PID list always empty.
+   - Fix: `shell.py` accepts `on_pid` callback. `registry.py` passes it. `main.py` wires `hub.add_shell_pid` in `build_agent()`.
+   - Also: `run_shell()` catches `asyncio.CancelledError`, calls `proc.kill()`, re-raises.
+
+2. **CancelledError silently swallowed** — `agent.py` `except Exception` doesn't catch CancelledError (BaseException in 3.9+). No error event → empty debug bar.
+   - Fix: Both `agent.py` and `shell.py` explicitly catch CancelledError. Agent yields error event → frontend debug bar gets content.
+
+3. **SIGTERM-first stop** — `stop_current()` now sends SIGTERM (15), waits 0.5s, checks alive (signal 0), then SIGKILL (9). Matches QA test contract.
+
+**Observability:** agent.py + main.py now log every action (LLM calls, tool calls, tool results, permissions, errors, stops). Lifespan configures basicConfig with timestamp format.
+
+**Also fixed:** `continue` inside `try/except` within `if mtype == "chat"` caused SyntaxError in Python 3.12 when nested `async def` in same block. Restructured to `try/except/else`.
+
+**Test Results:**
+- Backend: **34 passed**, 1 skipped, 0 failed
+- Frontend: **42 passed**, 0 failed
+
+---
+
+### Context Awareness Feature Plan (2026-05-03)
+**Added to Dev-Plan.md** — Full design document for agent context awareness.
+
+**Problem:** Agent has zero memory across messages. Every `run_stream()` starts fresh. Session history stored in SQLite but never read back. Model confirmed: *"I do not have memory of previous messages."*
+
+**Solution: Virtual Memory for LLMs**
+
+| Concept | OS Analogy | Implementation |
+|---------|-----------|---------------|
+| Context window | RAM | `num_ctx` token limit |
+| Spillover storage | Disk | SQLite/file for large tool output |
+| Compaction | GC | Summarize old turns into compact summary |
+| Paging | Page fault | `read_chunk` tool for on-demand access |
+
+**Core principle: never truncate, never lose data.** Large tool outputs become "books" saved to spillover. Model reads chapter by chapter, distilling understanding as it goes.
+
+**6 implementation steps (ordered by dependency):**
+1. History injection — load session messages, pass to agent (critical path)
+2. num_ctx maximization — set Ollama context window to model max
+3. Tool result spillover — large outputs go to file, not inline in context
+4. read_chunk tool — model pages through spillover data on demand
+5. Context compaction — summarize old turns when budget exceeded
+6. Smart token budgeting — precise budget allocation per message type
+
+**Status:** Awaiting PM/QA approval before implementation.
