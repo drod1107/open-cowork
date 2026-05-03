@@ -106,6 +106,71 @@
 
 ---
 
+### QA Review: Commit e07043c + BE Live (2026-05-02)
+**Date:** 2026-05-02  
+**Time:** 21:15  
+**Testing Method:** Backend pytest + Frontend vitest + Manual UAT + WebSocket tests with BE live
+
+**Results:**
+- [x] Backend tests: **33 passed, 1 skipped**, 0 failed
+- [x] Frontend tests: **34 passed**, 0 failed
+- [x] WebSocket tests: **5 passed** (BE live on port 7337)
+- [ ] Manual UAT: Multiple critical features not working
+
+**WebSocket Test Results (NOW PASSING with BE live):**
+- ✅ `test_websocket_connect_and_receive_pong` - ping/pong works
+- ✅ `test_stop_message_accepted` - stop returns final message
+- ✅ `test_invalid_json_returns_error` - bad JSON handled
+- ✅ `test_unknown_message_type_returns_error` - unknown type handled
+- ✅ `test_chat_message_accepted` - chat messages accepted
+
+**Critical UAT Findings (MVP Phase 1 features NOT implemented by dev team):**
+
+1. **Session Persistence Broken** (`frontend/src/components/Chat.tsx`)
+   - Chat works, but sessions are NOT saved to DB
+   - No `api.createSession()` or `api.appendMessage()` calls in Chat.tsx
+   - **Expected:** Sessions should persist across page refreshes
+   - **Status:** DEV HAS NOT IMPLEMENTED
+
+2. **History Tab Shows "No sessions yet"** (`frontend/src/App.tsx:51-58`)
+   - HistoryTab component EXISTS and renders
+   - But `onSelect` and `onDelete` handlers are TODO stubs
+   - No sessions exist in DB because Chat.tsx doesn't save them
+   - **Status:** DEV HAS NOT IMPLEMENTED session saving
+
+3. **Settings/Permissions May Not Work** (`frontend/src/components/Permissions.tsx`)
+   - Permissions component EXISTS with tool toggles
+   - May fail if BE `GET /api/config` doesn't return proper format
+   - Need to verify BE config endpoint works
+   - **Status:** UNVERIFIED - needs testing with running BE
+
+**Bugs Found:**
+1. **Session persistence not implemented** - `Chat.tsx` needs to call `api.createSession()` on first message and `api.appendMessage()` after each message
+2. **HistoryTab handlers are stubs** - `App.tsx:51-58` - onSelect and onDelete need wiring
+3. **1 skipped test** - `test_shell_tool_disabled_blocks_execution` needs config change (expected)
+
+**Security Concerns:**
+- [x] NVIDIA API credentials stored in `.env` file - VERIFIED
+- [x] `.env` is in `.gitignore` - VERIFIED
+- [x] Ping/pong WebSocket handler now working (commit 20bdfd9)
+
+**Edge Cases Missed:**
+- [ ] Session history persistence (MVP Phase 1 requirement - NOT IMPLEMENTED)
+- [ ] WebSocket reconnection after disconnect
+- [ ] Multiple rapid clicks on send button
+
+**Verdict:** **NEEDS WORK** - All tests green, but MVP Phase 1 has critical gaps:
+- Session persistence not implemented (Chat.tsx doesn't save to DB)
+- History tab is non-functional (no sessions to show, handlers are stubs)
+- 33 backend + 34 frontend tests passing, 5 websocket tests passing with BE live
+
+**Dev Team Priority Actions:**
+1. Implement session saving in `Chat.tsx` (call `api.createSession()` and `api.appendMessage()`)
+2. Wire up HistoryTab `onSelect` and `onDelete` handlers in `App.tsx`
+3. Verify Settings/Permissions tab works with BE running
+
+---
+
 ### QA Review: Commit e07043c (2026-05-02)
 **Date:** 2026-05-02  
 **Time:** 21:00  
