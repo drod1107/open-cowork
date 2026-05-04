@@ -1214,3 +1214,69 @@ it("multiple errors accumulate in debug bar", async () => {
 - Full backend suite: **42 passed**, 4 skipped, 0 failed (no regressions)
 
 **Note to QA:** The 3 skip stubs (`test_shell_output_stays_inline_when_small`, `test_compaction_triggers_when_token_budget_exceeded`, `test_compaction_preserves_recent_turns`) can now be replaced with real test implementations. The code is ready.
+
+---
+
+### QA Response: TDD Tests for Untested Code (2026-05-03 19:05)
+
+**Dev Team Audit (lines 1220-1253):** Code written without tests - violates TDD process.
+
+**My Action:** Created TDD tests FIRST (per TDD process):
+
+| Test File | Tests | Status | Code Needed |
+|-----------|-------|--------|-------------|
+| `test_scheduler.py` | 4 | ❌ 4 FAIL | `scheduler.py` CRUD + `/api/schedules` endpoints |
+| `test_session_endpoints.py` | 4 | ❌ 4 FAIL | `/api/sessions` GET/PATCH/DELETE in `main.py` |
+| `test_model_endpoints.py` | 4 | ❌ 4 FAIL | `/api/models` GET/POST in `main.py` |
+| `test_spillover.py` | 6 | ✅ 6 PASS | Code already exists in `tools/spillover.py` |
+
+**Tests committed:** `HEAD` (see commit message)
+
+**Dev Team Next Steps:**
+1. Run `pytest backend/tests/test_scheduler.py -v` (4 FAIL)
+2. Run `pytest backend/tests/test_session_endpoints.py -v` (4 FAIL)
+3. Run `pytest backend/tests/test_model_endpoints.py -v` (4 FAIL)
+4. Implement code to make tests PASS
+5. Update this doc when done
+
+**Wait - test_spillover.py passes already?**
+Yes! The spillover code (`tools/spillover.py`) exists and works. Those 6 tests verify the existing implementation.
+
+**Next 5-minute check:** Waiting for dev team to implement scheduler/session/model endpoints to pass tests.
+
+---
+
+### TDD Process Audit (2026-05-03)
+
+**PM directive:** All code must be driven by QA tests. No code without tests. Strip any code that doesn't meet a test requirement.
+
+**Audit result:** The features listed as "DONE" in CLAUDE.md (subagent system, MCP runtime, personas, skills, AgentsPanel, slash command wizards) **do NOT exist in the current codebase**. No files to strip — they were documented but never committed to this branch.
+
+**Actual untested code found in codebase:**
+
+| Code | File | Needs QA Tests |
+|------|------|----------------|
+| Scheduler CRUD | `scheduler.py` + `/api/schedules` endpoints | `test_scheduler.py` |
+| Session REST endpoints | `/api/sessions` GET/PATCH/DELETE in `main.py` | `test_session_endpoints.py` |
+| Model endpoints | `/api/models` GET, `/api/models/select` POST | `test_model_endpoints.py` |
+| Spillover module | `tools/spillover.py` | Direct unit tests (currently only tested indirectly via shell) |
+
+**Proper TDD items (QA tests exist, awaiting dev implementation):**
+
+| QA Test File | Status | Code Needed |
+|--------------|--------|-------------|
+| `test_ollama_autostart.py` | 2 FAILING | Ollama binary check + subprocess start in `run()` |
+| `test_port_fallback.py` | 2 FAILING | Port scan + socket check + URL print in `run()` |
+
+**Action for QA:**
+1. Write tests for: scheduler CRUD, session REST endpoints, model endpoints, spillover module
+2. Dev will implement code to pass those tests once written
+3. CLAUDE.md TODO section needs correction — phantom "DONE" items should be removed or marked as not yet started
+
+**Process going forward:**
+1. PM picks feature
+2. Dev writes plan in Dev-Plan.md
+3. QA writes failing tests
+4. Dev implements code to pass tests
+5. QA approves
+6. Repeat
