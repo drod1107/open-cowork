@@ -314,85 +314,88 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             except json.JSONDecodeError:
                 await websocket.send_json({"type": "error", "error": "bad json"})
                 continue
-        mtype = message.get("type")
+            mtype = message.get("type")
 
-        if mtype == "chat":
-            user_text = message.get("text", "") or ""
-            session_id = message.get("session_id")
-            logger.info("ws chat: session=%s text=%s", session_id or "NEW", user_text[:100])
+            if mtype == "chat":
+                user_text = message.get("text", "") or ""
+                session_id = message.get("session_id")
+                logger.info("ws chat: session=%s text=%s", session_id or "NEW", user_text[:100])
 
-            if session_id:
-                await append_message(session_id, "user", user_text)
-                is_new = False
-            else:
-                session = await create_session()
-                session_id = session["id"]
-                await append_message(session_id, "user", user_text)
-                await websocket.send_json({"type": "session_id", "session_id": session_id})
-                is_new = True
+                if session_id:
+                    await append_message(session_id, "user", user_text)
+                    is_new = False
+                else:
+                    session = await create_session()
+                    session_id = session["id"]
+                    await append_message(session_id, "user", user_text)
+                    await websocket.send_json({"type": "session_id", "session_id": session_id})
+                    is_new = True
 
-            cfg = load_config()
-            working_dir = cfg.get("runtime", {}).get("working_dir", ".")
-            try:
-                agent = hub.build_agent(working_dir)
-            except Exception as exc:
-                await websocket.send_json({"type": "error", "error": str(exc)})
-            else:
-                _sid = session_id
-                _is_new = is_new
+                cfg = load_config()
+                working_dir = cfg.get("runtime", {}).get("working_dir", ".")
+                try:
+                    agent = hub.build_agent(working_dir)
+                except Exception as exc:
+                    await websocket.send_json({"type": "error", "error": str(exc)})
+                else:
+                    _sid = session_id
+                    _is_new = is_new
 
-                history = await _build_history(_sid)
+                    history = await _build_history(_sid)
 
-                async def _run():
-                    assistant_text = ""
-                    async for event in agent.run_stream(user_text, history=history):
-                        etype = event.get("type")
-                        if etype == "tool_call":
-                            logger.info("ws event: tool_call %s", event.get("tool"))
-                        elif etype == "tool_result":
-                            logger.info("ws event: tool_result %s", event.get("tool"))
-                        elif etype == "error":
-                            logger.error("ws event: error %s", event.get("error"))
-                        elif etype == "permission_request":
-                            logger.info("ws event: permission_request %s", event.get("request", {}).get("action"))
-                        await websocket.send_json(event)
-                        if etype == "token" and event.get("text"):
-                            assistant_text += event["text"]
-                        elif etype == "final" and event.get("text"):
-                            assistant_text = event["text"]
-                    if assistant_text:
-                        await append_message(_sid, "assistant", assistant_text)
+                    async def _run():
+                        assistant_text = ""
+                        async for event in agent.run_stream(user_text, history=history):
+                            etype = event.get("type")
+                            if etype == "tool_call":
+                                logger.info("ws event: tool_call %s", event.get("tool"))
+                            elif etype == "tool_result":
+                                logger.info("ws event: tool_result %s", event.get("tool"))
+                            elif etype == "error":
+                                logger.error("ws event: error %s", event.get("error"))
+                            elif etype == "permission_request":
+                                logger.info("ws event: permission_request %s", event.get("request", {}).get("action"))
+                            await websocket.send_json(event)
+                            if etype == "token" and event.get("text"):
+                                assistant_text += event["text"]
+                            elif etype == "final" and event.get("text"):
+                                assistant_text = event["text"]
+                        if assistant_text:
+                            await append_message(_sid, "assistant", assistant_text)
                         if _is_new:
                             title = user_text[:60] + ("…" if len(user_text) > 60 else "")
                             await update_session_metadata(_sid, {"title": title})
                             await websocket.send_json({"type": "session_title", "session_id": _sid, "title": title})
 
-                task = asyncio.create_task(_run())
-                hub.set_current_task(task)
-                await task
+                    task = asyncio.create_task(_run())
+                    hub.set_current_task(task)
+                    await task
 
-        elif mtype == "permission_response":
-            rid = message.get("id") or ""
-            decision = message.get("decision") or "deny"
-            logger.info("ws permission_response: id=%s decision=%s", rid, decision)
-            ok = hub.resolve_permission(rid, decision)
-            await websocket.send_json(
-                {"type": "permission_resolved", "id": rid, "ok": ok}
-            )
+            elif mtype == "permission_response":
+                rid = message.get("id") or ""
+                decision = message.get("decision") or "deny"
+                logger.info("ws permission_response: id=%s decision=%s", rid, decision)
+                ok = hub.resolve_permission(rid, decision)
+                await websocket.send_json(
+                    {"type": "permission_resolved", "id": rid, "ok": ok}
+                )
 
-        elif mtype == "ping":
-            await websocket.send_json({"type": "pong"})
+            elif mtype == "ping":
+                await websocket.send_json({"type": "pong"})
 
-        elif mtype == "stop":
-            logger.info("ws stop: killing agent + subprocesses")
-            await hub.stop_current()
-            await websocket.send_json({"type": "final", "text": "[stopped by user]"})
+            elif mtype == "stop":
+                logger.info("ws stop: killing agent + subprocesses")
+                await hub.stop_current()
+                await websocket.send_json({"type": "final", "text": "[stopped by user]"})
 
-        else:
-            await websocket.send_json(
-                {"type": "error", "error": f"unknown message type: {mtype}"}
-            )
+            else:
+                await websocket.send_json(
+                    {"type": "error", "error": f"unknown message type: {mtype}"}
+                )
     except WebSocketDisconnect:
+        hub.unregister_ws(websocket)
+    except Exception as exc: # pragma: no cover - defensive
+        await websocket.send_json({"type": "error", "error": str(exc)})
         hub.unregister_ws(websocket)
     except Exception as exc:  # pragma: no cover - defensive
         await websocket.send_json({"type": "error", "error": str(exc)})

@@ -18,5 +18,5 @@
     "types": ["vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src"],
-  "exclude": ["e2e", "node_modules", "dist"]
+  "exclude": ["e2e", "node_modules", "dist", "src/__tests__"]
 }
