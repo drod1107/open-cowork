@@ -13,10 +13,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-def test_get_models_returns_list(tmp_config):
-    """Verify GET /api/models returns a list of models.
+def test_get_models_returns_dict(tmp_config):
+    """Verify GET /api/models returns dict with provider, models list.
 
     From Dev-Plan.md:113 - list available models.
+    Dev's shape: {"provider": ..., "base_url": ..., "models": [...], "selected": ...}
     """
     from backend.main import app
     client = TestClient(app)
@@ -24,13 +25,17 @@ def test_get_models_returns_list(tmp_config):
     response = client.get("/api/models")
     
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    data = response.json()
+    assert isinstance(data, dict), "Should return dict with metadata"
+    assert "models" in data, "Should have models key"
+    assert isinstance(data["models"], list), "models should be a list"
 
 
 def test_get_models_with_force_param(tmp_config):
     """Verify GET /api/models?force=1 refreshes model list.
 
     From Dev-Plan.md:113 - force refresh with ?force=.
+    Dev's shape: {"provider": ..., "base_url": ..., "models": [...], "selected": ...}
     """
     from backend.main import app
     client = TestClient(app)
@@ -38,7 +43,9 @@ def test_get_models_with_force_param(tmp_config):
     response = client.get("/api/models?force=1")
     
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    data = response.json()
+    assert isinstance(data, dict), "Should return dict"
+    assert "models" in data
 
 
 def test_select_model_requires_model_field(tmp_config):
@@ -62,6 +69,7 @@ def test_select_model_success(tmp_config):
     """Verify POST /api/models/select with valid model.
 
     From Dev-Plan.md:114 - select active model.
+    Dev's shape: {"selected": "model-name"}
     """
     from backend.main import app
     client = TestClient(app)
@@ -75,4 +83,6 @@ def test_select_model_success(tmp_config):
     assert response.status_code in [200, 400, 422]
     
     if response.status_code == 200:
-        assert response.json().get("ok") is True
+        data = response.json()
+        assert "selected" in data, "Should have selected field"
+        assert data["selected"] == "test-model"
