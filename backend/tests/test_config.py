@@ -7,11 +7,11 @@ from backend.config_loader import (
 
 def test_load_roundtrip(tmp_config):
     cfg = load_config(tmp_config)
-    assert cfg["provider"] == "ollama"
-    cfg["provider"] = "vllm"
+    assert cfg["active_provider"]["provider"] == "ollama"
+    cfg["active_provider"]["provider"] = "vllm"
     save_config(cfg, tmp_config)
     cfg2 = load_config(tmp_config)
-    assert cfg2["provider"] == "vllm"
+    assert cfg2["active_provider"]["provider"] == "vllm"
 
 
 def test_shell_tool_enabled_by_default(tmp_config):

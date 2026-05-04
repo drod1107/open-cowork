@@ -50,12 +50,10 @@ async def run_shell(
     on_pid: Callable[[int], None] | None = None,
 ) -> ShellResult:
     """Run `command` after checking tool toggle and permission gate."""
-    cfg_path = config_path or getattr(gate, "_config_path", None)
-    if cfg_path is not None:
-        cfg = load_config(cfg_path)
-        if not cfg.get("tools", {}).get("shell", True):
-            logger.info("shell blocked by config toggle: %s", command)
-            return ShellResult(command, -1, "", "Shell tool is disabled in config", False, "Shell tool is disabled in config")
+    cfg = load_config(config_path or getattr(gate, "_config_path", None))
+    if not cfg.get("tools", {}).get("shell", True):
+        logger.info("shell blocked by config toggle: %s", command)
+        return ShellResult(command, -1, "", "Shell tool is disabled in config", False, "Shell tool is disabled in config")
 
     permission = await gate.check(
         "shell", command, description=f"Run shell command: {command}"
