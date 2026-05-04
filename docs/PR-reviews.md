@@ -1472,4 +1472,87 @@ PM clarified the UX design for the Custom Provider Form. The form is NOT a stand
 - Fixed `server-test-harness.ts` python path to absolute path for reliable spawning
 - No more `server-fake` references in code (migrated to real server test harness)
 
-**Awaiting QA review.**
+**QA Review Complete - APPROVED ✅**
+
+**QA Verification Results:**
+- Backend tests: 76 passed, 0 failed
+- Custom provider tests: 6 passed, 0 failed
+- Implementation matches QA test contract exactly
+- No regressions detected
+
+---
+
+## Phase 2: Feature #2 — Working Directory Setting UI
+
+**Branch:** `Phase2-Expansion`
+**Feature:** Working Directory Setting UI (Feature #5 in PHASE2_PLAN.md)
+**Status:** DEV PLAN — Requesting QA tests
+
+### Dev Plan
+
+**Goal:** Add a "Working Directory" field to Settings that shows and edits the current working directory. Changing it persists to `config.toml` `[runtime] working_dir` and takes effect on the next agent invocation.
+
+**Backend (2 new endpoints):**
+
+1. `GET /api/config/working_dir` — returns the current working directory
+   - Reads `cfg["runtime"]["working_dir"]` from config
+   - Returns `{"working_dir": "/abs/path"}` — always resolves to absolute path via `Path.resolve()`
+   - If config value is `"."`, resolves to the process CWD
+
+2. `PATCH /api/config/working_dir` — updates the working directory
+   - Payload: `{"working_dir": "/new/path"}`
+   - Validates: path must exist on disk (400 if not)
+   - Validates: path must be a directory (400 if file)
+   - Resolves to absolute path before saving
+   - Writes `cfg["runtime"]["working_dir"] = resolved_path` to config.toml via `save_config()`
+   - Returns `{"working_dir": "/abs/resolved/path"}`
+   - No agent restart needed — WS handler reads `working_dir` fresh from config on every `chat` message (line 366-367)
+
+**Why PATCH not PUT:** This updates a single field, not the whole config. We already have `PUT /api/config` for full-replace; PATCH is semantically correct for partial updates and avoids overwriting unrelated fields.
+
+**Why a dedicated endpoint vs. using existing `PUT /api/config`:** The existing `PUT /api/config` replaces the entire config. A dedicated PATCH endpoint prevents accidental overwrites and provides validation (path exists, is directory). The frontend should not need to read-merge-write the entire config just to change one field.
+
+**Frontend (Settings > new "Working Directory" subsection):**
+
+1. New "Working Directory" subsection in `Permissions.tsx`, between Model Providers and Tools sections
+2. Displays current working directory in a read-only text field (monospace)
+3. "Edit" button → toggles field to editable + shows Save/Cancel buttons
+4. Editable field: text input with the current path pre-filled
+5. Save → calls `PATCH /api/config/working_dir` → refreshes display → exits edit mode
+6. Cancel → reverts to read-only display
+7. Error display if path validation fails (400 from backend)
+
+**Test IDs:**
+- `working-dir-display` — read-only text showing current path
+- `working-dir-edit-btn` — button to enter edit mode
+- `working-dir-input` — text input when editing
+- `working-dir-save-btn` — save button
+- `working-dir-cancel-btn` — cancel button
+- `working-dir-error` — error message div (hidden when no error)
+
+**What changes on the backend:**
+- `main.py`: Add `GET /api/config/working_dir` and `PATCH /api/config/working_dir`
+- No changes to `shell.py`, `registry.py`, `config_loader.py`, or `config.toml` — the existing WS handler already reads `working_dir` from config on every chat message
+
+**What changes on the frontend:**
+- `api.ts`: Add `getWorkingDir()` and `updateWorkingDir(path: string)` methods
+- `Permissions.tsx`: Add "Working Directory" subsection with display/edit mode UI
+
+**What does NOT change:**
+- No agent restart/reconnect needed — agent is rebuilt per chat message, reading `working_dir` from config each time
+- No WS message protocol changes
+- No changes to the shell tool — it already receives `working_dir` from the agent's tool registry
+- No folder picker (browser `<input type="file" webkitdirectory>` is restricted and unreliable — text input is sufficient for MVP)
+
+### QA Tests Requested
+
+Please write tests in `backend/tests/test_working_dir.py` covering:
+
+1. `test_get_working_dir_returns_config_value` — GET /api/config/working_dir returns the value from config.toml
+2. `test_get_working_dir_resolves_dot_to_cwd` — when config has `"."`, GET returns absolute path of process CWD
+3. `test_patch_working_dir_updates_config` — PATCH /api/config/working_dir with valid dir updates config.toml and returns resolved path
+4. `test_patch_working_dir_rejects_nonexistent_path` — PATCH with path that doesn't exist returns 400
+5. `test_patch_working_dir_rejects_file_path` — PATCH with path to a file (not directory) returns 400
+6. `test_patch_working_dir_rejects_missing_field` — PATCH with empty body or no working_dir field returns 422
+
+**Awaiting QA tests.**
