@@ -1,30 +1,15 @@
 /**
  * Integration tests for History → Resume flow.
  * Tests the 3 scenarios dev team suggested in PR-reviews.md (lines 620-635).
+ * Uses REAL server via test harness - no fake servers.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import App from "../App";
-import { installFakeServer, type InstalledFakeServer } from "./server-fake";
+import { setupTestServer, getServerUrl } from "./server-test-harness";
 
-let server: InstalledFakeServer;
-
-beforeEach(() => {
-  server = installFakeServer({
-    sessions: [
-      {
-        id: "session-a",
-        metadata: { title: "Session A" },
-        updated_at: "2026-05-03T10:00:00Z",
-      },
-      {
-        id: "session-b",
-        metadata: { title: "Session B" },
-        updated_at: "2026-05-03T09:00:00Z",
-      },
-    ],
-  });
-});
+// Setup real server for all tests
+setupTestServer();
 
 describe("Integration: Selecting a history session loads its messages into chat", () => {
   it("loads Session A's messages when selected from history", async () => {

@@ -1555,4 +1555,14 @@ Please write tests in `backend/tests/test_working_dir.py` covering:
 5. `test_patch_working_dir_rejects_file_path` — PATCH with path to a file (not directory) returns 400
 6. `test_patch_working_dir_rejects_missing_field` — PATCH with empty body or no working_dir field returns 422
 
+**Tests Written: `backend/tests/test_working_dir.py`**
+- test_get_working_dir_returns_config_value
+- test_get_working_dir_resolves_dot_to_cwd
+- test_patch_working_dir_updates_config
+- test_patch_working_dir_rejects_nonexistent_path
+- test_patch_working_dir_rejects_file_path
+- test_patch_working_dir_rejects_missing_field
+
+**QA Assessment:** Plan is well-designed. No concerns. Endpoints don't exist yet (tests fail as expected - 404/405).
+
 **Awaiting QA tests.**

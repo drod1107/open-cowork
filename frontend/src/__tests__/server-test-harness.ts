@@ -14,9 +14,9 @@ export async function startServer(): Promise<void> {
   if (serverProcess) return;
 
   return new Promise((resolve, reject) => {
-    serverProcess = spawn('../../.venv/bin/python', ['-m', 'backend.main'], {
+    serverProcess = spawn('/home/drod/Code/open-cowork/.venv/bin/python', ['-m', 'backend.main'], {
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
-      cwd: '../../',
+      cwd: '/home/drod/Code/open-cowork',
     });
 
     let output = '';
