@@ -46,10 +46,16 @@ export default function Permissions() {
   const [formBaseUrl, setFormBaseUrl] = useState("");
   const [formApiKey, setFormApiKey] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [workingDir, setWorkingDir] = useState<string>("");
+  const [editingWorkingDir, setEditingWorkingDir] = useState(false);
+  const [workingDirInput, setWorkingDirInput] = useState("");
+  const [workingDirError, setWorkingDirError] = useState<string | null>(null);
 
   const load = async () => {
     try {
       setCfg((await api.readConfig()) as Config);
+      const wd = await api.getWorkingDir();
+      setWorkingDir(wd.working_dir);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -115,6 +121,28 @@ export default function Permissions() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const startEditWorkingDir = () => {
+    setWorkingDirInput(workingDir);
+    setWorkingDirError(null);
+    setEditingWorkingDir(true);
+  };
+
+  const cancelEditWorkingDir = () => {
+    setEditingWorkingDir(false);
+    setWorkingDirError(null);
+  };
+
+  const saveWorkingDir = async () => {
+    try {
+      const result = await api.updateWorkingDir(workingDirInput.trim());
+      setWorkingDir(result.working_dir);
+      setEditingWorkingDir(false);
+      setWorkingDirError(null);
+    } catch (e) {
+      setWorkingDirError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -253,7 +281,50 @@ export default function Permissions() {
         )}
       </div>
 
-      {/* Tools Section */}
+      {/* Working Directory Section */}
+  <div className="border border-slate-800 rounded-md p-2 space-y-2">
+    <div className="font-semibold">Working Directory</div>
+    {!editingWorkingDir ? (
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-xs flex-1 break-all" data-testid="working-dir-display">{workingDir}</span>
+        <button
+          className="bg-sky-700 hover:bg-sky-600 rounded-md px-2 py-0.5 text-xs"
+          onClick={startEditWorkingDir}
+          data-testid="working-dir-edit-btn"
+        >
+          Edit
+        </button>
+      </div>
+    ) : (
+      <div className="space-y-2">
+        <input
+          className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
+          value={workingDirInput}
+          onChange={(e) => setWorkingDirInput(e.target.value)}
+          data-testid="working-dir-input"
+        />
+        {workingDirError && <div className="text-red-400 text-xs" data-testid="working-dir-error">{workingDirError}</div>}
+        <div className="flex gap-2">
+          <button
+            className="bg-sky-700 hover:bg-sky-600 rounded-md px-3 py-1 text-xs"
+            onClick={() => void saveWorkingDir()}
+            data-testid="working-dir-save-btn"
+          >
+            Save
+          </button>
+          <button
+            className="bg-slate-700 hover:bg-slate-600 rounded-md px-3 py-1 text-xs"
+            onClick={cancelEditWorkingDir}
+            data-testid="working-dir-cancel-btn"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+
+  {/* Tools Section */}
       <div className="border border-slate-800 rounded-md p-2 space-y-2">
         <div className="font-semibold">Tools</div>
         <div className="flex justify-between items-center">

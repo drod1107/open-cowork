@@ -55,4 +55,19 @@ export const api = {
       if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
       return json<{ ok: boolean }>(r);
     }),
+
+  getWorkingDir: () =>
+    fetch("/api/config/working_dir").then((r) =>
+      json<{ working_dir: string }>(r),
+    ),
+
+  updateWorkingDir: (working_dir: string) =>
+    fetch("/api/config/working_dir", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ working_dir }),
+    }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ working_dir: string }>(r);
+    }),
 };

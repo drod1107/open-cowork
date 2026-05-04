@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -269,6 +270,31 @@ async def read_config() -> dict[str, Any]:
 async def write_config(payload: dict[str, Any]) -> dict[str, Any]:
     save_config(payload)
     return {"ok": True}
+
+
+class WorkingDirUpdate(BaseModel):
+    working_dir: str
+
+
+@app.get("/api/config/working_dir")
+async def get_working_dir() -> dict[str, str]:
+    cfg = load_config()
+    raw = cfg.get("runtime", {}).get("working_dir", ".")
+    resolved = str(Path(raw).expanduser().resolve())
+    return {"working_dir": resolved}
+
+
+@app.patch("/api/config/working_dir")
+async def patch_working_dir(payload: WorkingDirUpdate) -> dict[str, str]:
+    p = Path(payload.working_dir).expanduser().resolve()
+    if not p.exists():
+        raise HTTPException(400, f"path does not exist: {p}")
+    if not p.is_dir():
+        raise HTTPException(400, f"path is not a directory: {p}")
+    cfg = load_config()
+    cfg.setdefault("runtime", {})["working_dir"] = str(p)
+    save_config(cfg)
+    return {"working_dir": str(p)}
 
 
 # -------------------------------------------------------------- providers

@@ -1565,4 +1565,32 @@ Please write tests in `backend/tests/test_working_dir.py` covering:
 
 **QA Assessment:** Plan is well-designed. No concerns. Endpoints don't exist yet (tests fail as expected - 404/405).
 
-**Awaiting QA tests.**
+### Implementation Complete — All 6 QA tests pass ✅
+
+**Backend changes (`backend/main.py`):**
+- Added `WorkingDirUpdate` Pydantic model (required `working_dir: str` field — gives 422 for free on missing field)
+- `GET /api/config/working_dir` — reads `cfg["runtime"]["working_dir"]`, resolves `"."` to absolute CWD via `Path.resolve()`, returns `{"working_dir": "/abs/path"}`
+- `PATCH /api/config/working_dir` — validates path exists (400 if not), validates path is directory (400 if file), resolves to absolute, saves to `cfg["runtime"]["working_dir"]` via `save_config()`, returns `{"working_dir": "/abs/path"}`
+- No changes to `config_loader.py`, `shell.py`, `registry.py`, or `config.toml` — WS handler already reads `working_dir` fresh from config on every chat message
+
+**Frontend changes:**
+- `frontend/src/lib/api.ts` — Added `getWorkingDir()` and `updateWorkingDir(path: string)` methods
+- `frontend/src/components/Permissions.tsx` — Added "Working Directory" subsection (between Model Providers and Tools):
+  - Display mode: read-only monospace text + Edit button
+  - Edit mode: text input pre-filled with current path, Save/Cancel buttons, error display for 400s
+  - Load fetches working dir on mount via `api.getWorkingDir()`
+  - Save calls `api.updateWorkingDir()` → updates local state → exits edit mode
+
+**Test IDs:** `working-dir-display`, `working-dir-edit-btn`, `working-dir-input`, `working-dir-save-btn`, `working-dir-cancel-btn`, `working-dir-error`
+
+**Test Results:**
+- Backend: **82 passed**, 0 failed (6 working_dir + 76 existing)
+- Frontend: **7 passed**, 6 skipped, 13 failed (all pre-existing — Chat/History/ModelPicker "document is not defined", HistoryFlow port conflict, e2e Playwright — no regressions from this feature)
+
+**Dev self-review — no gaming:**
+- Backend endpoints match QA test contract exactly (GET returns resolved path, PATCH validates exists + is_dir + saves, missing field → 422 via Pydantic)
+- Frontend `getWorkingDir`/`updateWorkingDir` call real endpoints
+- No shims or aliases added
+- PATCH resolves path via `Path.expanduser().resolve()` before saving — test sends absolute path so assertion still holds
+
+**Awaiting QA review.**
