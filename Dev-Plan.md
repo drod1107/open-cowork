@@ -31,6 +31,7 @@
 - MCP server integration
 - Web/browser/computer/coding tools (beyond shell)
 - Desktop-optimized UI (incidental, mobile is primary)
+- Scheduled AI tasks (cron-for-AI via APScheduler)
 
 ---
 
@@ -451,7 +452,47 @@ spillover_ttl_hours = 24       # clean up spillover files after this long
 
 ---
 
-## Change Log
+## Phase 2: Scheduled AI Tasks (Cron-for-AI)
+
+### Concept
+
+Your AI coworker can do things on a timer, not just when you chat. Schedule the agent to run tasks on cron schedules — e.g., "every morning at 7am, check if my tests pass and summarize results," or "every Monday, generate a weekly summary of git commits."
+
+### Engine
+
+[APScheduler](https://github.com/agronholm/apscheduler) (MIT, 7.5k stars) — mature Python task scheduler with:
+- Cron-style, interval, and one-off triggers
+- Persistent job storage (SQLite, PostgreSQL, MongoDB) — jobs survive restarts
+- Native asyncio support — fits FastAPI's async model
+- Multi-node scaling if needed later
+
+### User Stories
+
+1. **Create a scheduled task** — User types a natural-language description and a cron schedule. The agent runs that description as a prompt on schedule.
+2. **View scheduled tasks** — List all jobs with their schedule, next run time, and last result.
+3. **Delete a scheduled task** — Remove a job from the schedule.
+4. **View task run log** — See when scheduled tasks fired, succeeded, or failed.
+5. **Receive results** — When a scheduled task completes, its output appears in the chat as a system message (or notification).
+
+### Backend Spec (To Be Written by Dev When Phase 2 Starts)
+
+- `Scheduler` class wrapping APScheduler with cron-only API
+- REST endpoints: `GET/POST/DELETE /api/schedules`
+- WebSocket events: `scheduler_start`, `scheduler_event`, `scheduler_end`, `scheduler_error`
+- Job storage in `sessions.db` via SQLAlchemyJobStore
+- `_task_runner` function: builds a fresh agent, runs the description, broadcasts events
+
+### Frontend Spec (To Be Written When Phase 2 Starts)
+
+- New "Schedule" section in Settings tab (or its own tab)
+- Form: natural-language description + cron expression + optional job ID
+- Job list with schedule, next run, status
+- Run log with timestamps and outcomes
+- Scheduled task results surface in Chat tab
+
+### Status
+
+Not started. Infrastructure removed from MVP (scheduler.py, endpoints, APScheduler dependency). Will be re-implemented from this spec when Phase 2 begins.
 
 - [2026-05-02] Established MVP design via conversation with user (all decisions logged in MVP_DESIGN.md)
 - [2026-05-02] Created `cleanup-baseline` branch from `faa9c79`
@@ -469,3 +510,4 @@ spillover_ttl_hours = 24       # clean up spillover files after this long
 - [2026-05-02] "No" = never ping NVIDIA unless user manually selects it from dropdown
 - [2026-05-02] Updated all relevant sections: MVP Scope, UI Design, Backend Architecture, Test Checklist
 - [2026-05-03] Added Context Awareness System design (history injection, spillover, compaction, num_ctx, read_chunk)
+- [2026-05-03] Stripped scheduler from MVP — hallucinated feature with no spec. Moved to Phase 2 as "Scheduled AI Tasks"

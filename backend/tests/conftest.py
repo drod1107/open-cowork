@@ -41,29 +41,19 @@ def hub(tmp_path: Path):
     """Set up app.state.hub with a real HubState + mocked provider.
 
     TestClient doesn't run the FastAPI lifespan, so we must initialise
-    HubState manually.  The provider's network calls are mocked so tests
+    HubState manually. The provider's network calls are mocked so tests
     don't need a live Ollama / OpenAI endpoint.
     """
     from backend.main import HubState, app
-    from backend.scheduler import Scheduler
-
-    async def _noop_runner(description: str) -> None:
-        pass
 
     h = HubState()
     h.provider = AsyncMock()
     h.provider.provider = "ollama"
     h.provider.base_url = "http://localhost:11434"
     h.provider.list_models = AsyncMock(return_value=[])
-    h.scheduler = Scheduler(task_runner=_noop_runner, db_path=tmp_path / "sched.db")
-    h.scheduler.start()
 
     app.state.hub = h
     yield h
 
-    try:
-        h.scheduler.shutdown()
-    except RuntimeError:
-        pass
     if hasattr(app.state, "hub"):
         del app.state.hub

@@ -1331,3 +1331,47 @@ Dev will NOT add: `add_job`/`get_jobs`/`remove_job` aliases, scheduler field rem
 - Conftest hub fixture added — resolves `app.state.hub` KeyError for all TestClient-based tests
 - Remaining 10 test failures are all design disagreements listed above
 - CLAUDE.md deleted per PM instruction (phantom "DONE" items were context pollution)
+
+---
+
+## Dev Update — Scheduler stripped from MVP (post-commit 01ffb4c)
+
+Scheduler (`scheduler.py`, APScheduler dep, SQLAlchemy dep, `/api/schedules` endpoints, frontend event types, e2e tests) has been fully removed from the codebase. It was a hallucinated feature with no spec and no UI. Moved to Phase 2 per Dev-Plan.md.
+
+**Disagreements 1, 2, 6 are now MOOT** — scheduler code no longer exists:
+- Disagreement 1 (Scheduler API style): moot
+- Disagreement 2 (Scheduler POST body): moot
+- Disagreement 6 (GET /api/schedules return shape): moot
+
+**Remaining open disagreements (3, 4, 5, 7):**
+
+| # | Topic | Dev position | Awaiting |
+|---|-------|-------------|----------|
+| 3 | Session PATCH body | Willing to accept top-level fields, auto-nest under metadata | QA confirm |
+| 4 | Async functions called sync | Bug in tests — must await or use `asyncio.run()` | QA fix |
+| 5 | GET /api/models return shape | Dict carries useful metadata; bare list is simpler | QA decide |
+| 7 | POST /api/models/select return shape | Can return `{"ok": true, "selected": "model"}` compromise | QA decide |
+
+**Current test suite: 53 passed, 15 failed (0 regressions from scheduler removal)**
+
+Awaiting QA response on disagreements 3–5–7 and bug fix for disagreement 4 before making code changes.
+
+---
+
+## Dev Update — All disagreements resolved, TDD features implemented
+
+QA resolved disagreements 3-5-7 by updating their tests to match dev's API shapes:
+- Disagreement 3: QA now sends `{"metadata": {"title": "..."}}` — matches existing endpoint
+- Disagreement 4: QA switched to `AsyncClient` + `await` — bug fixed
+- Disagreement 5: QA now expects dict `{"provider", "models", "selected", "base_url"}` — matches existing endpoint
+- Disagreement 7: QA now expects `{"selected": "model"}` — matches existing endpoint
+
+Dev implemented two TDD features:
+- **Ollama auto-start** (Dev-Plan.md:267): `shutil.which("ollama")` + `socket.connect_ex` + `subprocess.Popen(["ollama", "serve"])`
+- **Port auto-fallback** (Dev-Plan.md:268): `for port in range(port, port+8)` + `socket.connect_ex` scan
+
+**Current test suite: 64 passed, 4 failed, 1 skipped**
+
+The 4 remaining failures are all `test_websocket_chat.py` — these require a live server (`ws://localhost:7337/ws`) and will pass once the server is running. They are integration/E2E tests, not unit tests.
+
+**QA test bug note:** `test_ollama_autostart.py` has a duplicate `test_run_function_starts_ollama_process` function (lines 56 and 94) and the first one has a NameError at line 84 (`has_binary_check` undefined in that scope). Both pass currently because `has_subprocess_start` is True and the NameError code path isn't reached before the assertion succeeds. QA may want to clean this up.

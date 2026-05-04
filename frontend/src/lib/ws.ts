@@ -13,10 +13,6 @@ export type AgentEvent =
       };
     }
   | { type: "permission_resolved"; id: string; ok: boolean }
-  | { type: "scheduler_start"; description: string }
-  | { type: "scheduler_event"; event: AgentEvent }
-  | { type: "scheduler_end"; description: string }
-  | { type: "scheduler_error"; error: string }
   | { type: "error"; error: string }
   | { type: "session_id"; session_id: string }
   | { type: "session_title"; session_id: string; title: string }
