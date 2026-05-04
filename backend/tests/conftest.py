@@ -1,59 +1,47 @@
-import asyncio
-import shutil
-import tempfile
-from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock
-
+"""Shared fixtures for backend tests."""
 import pytest
-import tomli_w
+from unittest.mock import AsyncMock
+from pathlib import Path
 
-DEFAULT_CONFIG: dict[str, Any] = {
-    "provider": "ollama",
-    "base_url": "http://localhost:11434",
-    "agent": {
-        "max_turns": 5,
-        "system_prompt": "you are a test",
-    },
-    "runtime": {"working_dir": "."},
-    "tools": {
-        "shell": True,
-    },
-    "permissions": {
-        "shell": {
-            "allowed_commands": ["ls*", "pwd", "echo*", "cat*", "grep", "git status", "git diff*"],
-            "blocked_commands": ["rm -rf /*", "mkfs*", "dd if=*", ":(){:|:&};:"],
-        },
-    },
-}
+# Import existing fixtures
+from backend.tests.server_harness import start_server, stop_server
 
 
-@pytest.fixture()
-def tmp_config(tmp_path: Path, hub) -> Path:
-    p = tmp_path / "config.toml"
-    with open(p, "wb") as f:
-        tomli_w.dump(DEFAULT_CONFIG, f)
-    return p
+@pytest.fixture(scope="module", autouse=True)
+def run_server():
+    """Start server for tests that need it."""
+    start_server()
+    yield
+    stop_server()
 
 
-@pytest.fixture()
-def hub(tmp_path: Path):
-    """Set up app.state.hub with a real HubState + mocked provider.
-
-    TestClient doesn't run the FastAPI lifespan, so we must initialise
-    HubState manually. The provider's network calls are mocked so tests
-    don't need a live Ollama / OpenAI endpoint.
-    """
-    from backend.main import HubState, app
-
-    h = HubState()
+@pytest.fixture
+def hub():
+    """Mock HubState for tests that need it."""
+    h = AsyncMock()
     h.provider = AsyncMock()
-    h.provider.provider = "ollama"
-    h.provider.base_url = "http://localhost:11434"
     h.provider.list_models = AsyncMock(return_value=[])
+    h.selected_model = None
+    return h
 
-    app.state.hub = h
-    yield h
 
-    if hasattr(app.state, "hub"):
-        del app.state.hub
+@pytest.fixture
+def tmp_config(tmp_path: Path) -> Path:
+    """Create a temporary config.toml for testing."""
+    config = '''[runtime]
+working_dir = "."
+
+[active_provider]
+provider = "ollama"
+base_url = "http://localhost:11434"
+model = "test-model"
+
+[tools]
+shell = true
+
+[permissions]
+enabled = false
+'''
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(config)
+    return config_path
