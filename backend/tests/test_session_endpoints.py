@@ -4,7 +4,7 @@ From PR-reviews.md TDD Process Audit (2026-05-03):
 - Session REST endpoints: /api/sessions GET/PATCH/DELETE in main.py
 - Needs test coverage per TDD process
 
-From Dev-Plan.md Phase 1 (lines 119-121):
+From Dev-Plan.md Phase 1 (lines 119-122):
 - GET /api/sessions - list all sessions
 - GET /api/sessions/{id} - get session with messages
 - PATCH /api/sessions/{id} - update metadata (title)
@@ -12,51 +12,57 @@ From Dev-Plan.md Phase 1 (lines 119-121):
 """
 
 import pytest
-from fastapi.testclient import TestClient
+import asyncio
+from httpx import AsyncClient
 
 
-def test_get_sessions_returns_list(tmp_config, monkeypatch):
+@pytest.mark.asyncio
+async def test_get_sessions_returns_list(tmp_config, monkeypatch):
     """Verify GET /api/sessions returns a list of sessions.
 
     From Dev-Plan.md:119 - list all sessions.
+    Dev's shape: {"sessions": [...]}
     """
     from backend.main import app
     from backend import sessions as sessions_mod
-    import sqlite3
     
     # Setup test DB
     db_path = tmp_config.parent / "sessions.db"
     monkeypatch.setattr(sessions_mod, "DB_PATH", db_path)
-    sessions_mod.init_db()
+    await sessions_mod.init_db()
     
-    client = TestClient(app)
-    response = client.get("/api/sessions")
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.get("/api/sessions")
     
     assert response.status_code == 200
-    assert isinstance(response.json(), list)
+    data = response.json()
+    assert isinstance(data, dict), "Should return dict"
+    assert "sessions" in data, "Should have sessions key"
+    assert isinstance(data["sessions"], list), "sessions should be a list"
 
 
-def test_get_session_by_id(tmp_config, monkeypatch):
+@pytest.mark.asyncio
+async def test_get_session_by_id(tmp_config, monkeypatch):
     """Verify GET /api/sessions/{id} returns session with messages.
 
     From Dev-Plan.md:120 - get session with messages.
     """
     from backend.main import app
     from backend import sessions as sessions_mod
-    import sqlite3
     
     # Setup test DB
     db_path = tmp_config.parent / "sessions.db"
     monkeypatch.setattr(sessions_mod, "DB_PATH", db_path)
-    sessions_mod.init_db()
+    await sessions_mod.init_db()
     
-    # Create a test session
-    session_id = sessions_mod.create_session()
-    sessions_mod.append_message(session_id, "user", "Hello")
-    sessions_mod.append_message(session_id, "assistant", "Hi there!")
+    # Create a test session (await async function)
+    session_dict = await sessions_mod.create_session()
+    session_id = session_dict["id"]  # Extract the ID string from dict
+    await sessions_mod.append_message(session_id, "user", "Hello")
+    await sessions_mod.append_message(session_id, "assistant", "Hi there!")
     
-    client = TestClient(app)
-    response = client.get(f"/api/sessions/{session_id}")
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.get(f"/api/sessions/{session_id}")
     
     assert response.status_code == 200
     data = response.json()
@@ -65,10 +71,12 @@ def test_get_session_by_id(tmp_config, monkeypatch):
     assert len(data["messages"]) > 0
 
 
-def test_patch_session_updates_metadata(tmp_config, monkeypatch):
+@pytest.mark.asyncio
+async def test_patch_session_updates_metadata(tmp_config, monkeypatch):
     """Verify PATCH /api/sessions/{id} updates metadata.
 
     From Dev-Plan.md:121 - update metadata (title).
+    Dev's return: {"ok": True}
     """
     from backend.main import app
     from backend import sessions as sessions_mod
@@ -76,29 +84,35 @@ def test_patch_session_updates_metadata(tmp_config, monkeypatch):
     # Setup test DB
     db_path = tmp_config.parent / "sessions.db"
     monkeypatch.setattr(sessions_mod, "DB_PATH", db_path)
-    sessions_mod.init_db()
+    await sessions_mod.init_db()
     
-    # Create a test session
-    session_id = sessions_mod.create_session()
+    # Create a test session (await async function)
+    session_dict = await sessions_mod.create_session()
+    session_id = session_dict["id"]  # Extract the ID string
     
-    client = TestClient(app)
-    response = client.patch(
-        f"/api/sessions/{session_id}",
-        json={"title": "New Title"}
-    )
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.patch(
+            f"/api/sessions/{session_id}",
+            json={"metadata": {"title": "New Title"}}
+        )
     
     assert response.status_code == 200
+    data = response.json()
+    assert data.get("ok") is True, "Should return ok: true"
     
     # Verify update
-    get_response = client.get(f"/api/sessions/{session_id}")
+    async with AsyncClient(app=app, base_url="http://test") as client2:
+        get_response = await client2.get(f"/api/sessions/{session_id}")
     data = get_response.json()
     assert data.get("metadata", {}).get("title") == "New Title"
 
 
-def test_delete_session_returns_deleted_true(tmp_config, monkeypatch):
+@pytest.mark.asyncio
+async def test_delete_session_returns_deleted_true(tmp_config, monkeypatch):
     """Verify DELETE /api/sessions/{id} returns {deleted: true}.
 
     From Dev-Plan.md:122 - delete session.
+    Dev's return: {"deleted": True/False}
     """
     from backend.main import app
     from backend import sessions as sessions_mod
@@ -106,17 +120,20 @@ def test_delete_session_returns_deleted_true(tmp_config, monkeypatch):
     # Setup test DB
     db_path = tmp_config.parent / "sessions.db"
     monkeypatch.setattr(sessions_mod, "DB_PATH", db_path)
-    sessions_mod.init_db()
+    await sessions_mod.init_db()
     
-    # Create a test session
-    session_id = sessions_mod.create_session()
+    # Create a test session (await async function)
+    session_dict = await sessions_mod.create_session()
+    session_id = session_dict["id"]  # Extract the ID string
     
-    client = TestClient(app)
-    response = client.delete(f"/api/sessions/{session_id}")
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.delete(f"/api/sessions/{session_id}")
     
     assert response.status_code == 200
-    assert response.json().get("deleted") is True
+    data = response.json()
+    assert data.get("deleted") is True, "Should return deleted: true"
     
     # Verify deleted
-    get_response = client.get(f"/api/sessions/{session_id}")
+    async with AsyncClient(app=app, base_url="http://test") as client2:
+        get_response = await client2.get(f"/api/sessions/{session_id}")
     assert get_response.status_code == 404
