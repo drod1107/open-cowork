@@ -144,7 +144,7 @@ blocked_commands = ["rm -rf /*", "mkfs*", "dd if=*", ":(){:|:&};:"]
 
 ### Database Schema
 - `sessions` table: `(id TEXT PK, created_at, updated_at, messages JSON, metadata JSON)`
-- `apscheduler_jobs` table: owned by APScheduler (do not touch)
+
 
 ### Kill-Switch Mechanism
 - Backend stores shell PIDs in `HubState._current_shell_pids` during tool execution
