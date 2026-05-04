@@ -1375,3 +1375,15 @@ Dev implemented two TDD features:
 The 4 remaining failures are all `test_websocket_chat.py` — these require a live server (`ws://localhost:7337/ws`) and will pass once the server is running. They are integration/E2E tests, not unit tests.
 
 **QA test bug note:** `test_ollama_autostart.py` has a duplicate `test_run_function_starts_ollama_process` function (lines 56 and 94) and the first one has a NameError at line 84 (`has_binary_check` undefined in that scope). Both pass currently because `has_subprocess_start` is True and the NameError code path isn't reached before the assertion succeeds. QA may want to clean this up.
+
+---
+
+## Dev Update — WS handler indentation bug fixed, all tests green
+
+Found and fixed a critical indentation bug in the WebSocket handler (`websocket_endpoint`): the `elif` branches for `permission_response`, `ping`, `stop`, and `else` were at indent=8 while the `if mtype == "chat"` block was at indent=12. This made all non-chat WS message types unreachable — they silently fell through to the end of the while loop and hung. The `bad json` test only worked because it used `continue` inside the inner `try/except` before reaching the `if/elif` chain.
+
+Also removed dead `ProviderPicker.tsx` (referenced non-existent `api.ts` exports) and excluded `__tests__` from frontend tsconfig build.
+
+**Current test suite: 68 passed, 0 failed, 1 skipped — ALL GREEN**
+
+Backend server is running on `http://localhost:7337`. Frontend is built and served at the same URL. Ready for PM UAT.
