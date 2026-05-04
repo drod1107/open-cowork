@@ -70,26 +70,6 @@ test("selecting a model removes the no-model hint", async ({ page }) => {
   await expect(page.getByTestId("no-model-hint")).toHaveCount(0);
 });
 
-test("scheduler: create, list, and remove a job round-trips through the real backend", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await page.getByTestId("panel-scheduler").click();
-
-  const desc = `e2e-task-${Date.now()}`;
-  await page.getByTestId("schedule-description").fill(desc);
-  await page.getByTestId("schedule-cron").fill("*/15 * * * *");
-  await page.getByTestId("schedule-add").click();
-
-  const row = page.locator(`text=${desc}`).first();
-  await expect(row).toBeVisible({ timeout: 5_000 });
-  // Cron string must round-trip exactly (regression on field-reordering bug).
-  await expect(page.locator("text=*/15 * * * *").first()).toBeVisible();
-
-  await row.locator("xpath=..").locator("xpath=..").getByText("remove").click();
-  await expect(row).toHaveCount(0, { timeout: 5_000 });
-});
-
 test("permissions: changing the shell default persists to the backend", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("panel-permissions").click();
@@ -121,14 +101,6 @@ test("chat without a selected model surfaces a clear error", async ({ page }) =>
 
 test("panel switcher mounts each side panel", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("scheduler")).toBeVisible();
-
   await page.getByTestId("panel-permissions").click();
   await expect(page.getByTestId("permissions")).toBeVisible();
-
-  await page.getByTestId("panel-computer").click();
-  await expect(page.getByTestId("computer-view")).toBeVisible();
-
-  await page.getByTestId("panel-scheduler").click();
-  await expect(page.getByTestId("scheduler")).toBeVisible();
 });

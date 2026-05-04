@@ -13,10 +13,9 @@ Build a streamlined, mobile-first OpenCowork POC based on README.md specificatio
 - [x] Agent loop (OpenAI-compatible API)
 - [x] Permission gate (ask/allow/deny)
 - [x] Provider auto-discovery (Ollama, LM Studio, vLLM, SGLang)
-- [x] APScheduler + SQLite cron jobs
 - [x] Config loader (TOML)
 - [x] Tools: shell, web (fetch + search), browser (Playwright MCP), computer, coding
-- [x] REST endpoints for models, sessions, scheduler, config
+- [x] REST endpoints for models, sessions, config
 - [x] WebSocket protocol for chat streaming
 
 ### Frontend (React + TypeScript + Vite + Tailwind)
@@ -24,7 +23,6 @@ Build a streamlined, mobile-first OpenCowork POC based on README.md specificatio
 - [ ] **Chat interface** - streaming messages, tool call display
 - [ ] **ModelPicker** - select model from active provider
 - [ ] **ProviderPicker** - switch between providers
-- [ ] **Scheduler panel** - create/delete cron jobs
 - [ ] **Permissions panel** - view/modify allow/block rules
 - [ ] **ComputerView** - display desktop screenshots
 - [ ] **Sidebar** - session list (simplified, no personas/skills)
@@ -39,6 +37,8 @@ Build a streamlined, mobile-first OpenCowork POC based on README.md specificatio
 - **Remove**: Skills system (backend/skills/)
 - **Remove**: Subagents (backend/subagent.py, frontend/components/AgentsPanel.tsx)
 - **Remove**: MCP servers (backend/mcp/, backend/config/mcp_servers.toml)
+- **Remove**: Scheduler / cron-for-AI (moved to Phase 2 — APScheduler spec in Dev-Plan.md)
+- **Remove**: ComputerView (out of scope for MVP)
 - **Simplify**: Chat to core functionality only (no slash commands for personas/skills/agents)
 - **Simplify**: Sidebar - session list only, no complex features
 - **Keep**: Stop button, mobile debug bar (useful for testing)
@@ -68,8 +68,6 @@ Build a streamlined, mobile-first OpenCowork POC based on README.md specificatio
 - [ ] Mobile: Model picker works
 - [ ] Mobile: Provider switching works
 - [ ] Mobile: Tool calls visible in chat
-- [ ] Mobile: Scheduler panel works
 - [ ] Mobile: Permissions panel works
-- [ ] Mobile: Computer view shows screenshots
 - [ ] Desktop: Usable layout (not optimized, but works)
 - [ ] All features work over Tailscale on mobile device

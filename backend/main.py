@@ -2,12 +2,12 @@
 
 Responsibilities:
 - Serve the compiled React frontend (if built) as static files.
-- Expose REST endpoints for models, schedules, config, permissions, health.
+- Expose REST endpoints for models, config, permissions, health.
 - Run a single WebSocket endpoint that multiplexes:
-    * inbound user messages  -> agent.run_stream
-    * outbound agent events   -> client
-    * inbound permission replies -> permission gate
-    * outbound permission requests -> client
+  * inbound user messages -> agent.run_stream
+  * outbound agent events -> client
+  * inbound permission replies -> permission gate
+  * outbound permission requests -> client
 """
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ from .agent import Agent
 from .config_loader import load_config, save_config
 from .permissions import PermissionGate, PermissionRequest
 from .providers import ProviderClient
-from .scheduler import Scheduler
 from .sessions import (
     init_db as sessions_init_db,
     create_session,
@@ -65,7 +64,6 @@ class HubState:
     def __init__(self) -> None:
         self.gate = PermissionGate()
         self.provider = ProviderClient()
-        self.scheduler: Scheduler | None = None
         self._pending_permissions: dict[str, asyncio.Future] = {}
         self._ws_clients: set[WebSocket] = set()
         self._selected_model: str | None = None
@@ -208,30 +206,9 @@ async def lifespan(app: FastAPI):
     hub.gate.set_prompter(hub.prompt_permission)
     await sessions_init_db()
 
-    # Task runner for scheduled jobs: run a fresh agent and broadcast events.
-    async def _task_runner(description: str) -> None:
-        cfg = load_config()
-        working_dir = cfg.get("runtime", {}).get("working_dir", ".")
-        try:
-            agent = hub.build_agent(working_dir)
-        except Exception as exc:
-            await hub.broadcast({"type": "scheduler_error", "error": str(exc)})
-            return
-        await hub.broadcast(
-            {"type": "scheduler_start", "description": description}
-        )
-        async for event in agent.run_stream(description):
-            await hub.broadcast({"type": "scheduler_event", "event": event})
-        await hub.broadcast({"type": "scheduler_end", "description": description})
-
-    hub.scheduler = Scheduler(task_runner=_task_runner)
-    hub.scheduler.start()
-
     try:
         yield
     finally:
-        if hub.scheduler:
-            hub.scheduler.shutdown()
         await hub.provider.close()
 
 
@@ -278,34 +255,6 @@ async def select_model(payload: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(400, "missing `model`")
     hub.select_model(model)
     return {"selected": model}
-
-
-# ----------------------------------------------------------------- schedules
-@app.get("/api/schedules")
-async def list_schedules() -> dict[str, Any]:
-    hub: HubState = app.state.hub
-    assert hub.scheduler
-    return {"schedules": [j.to_dict() for j in hub.scheduler.list()]}
-
-
-@app.post("/api/schedules")
-async def create_schedule(payload: dict[str, Any]) -> dict[str, Any]:
-    hub: HubState = app.state.hub
-    assert hub.scheduler
-    description = payload.get("description")
-    cron = payload.get("cron")
-    if not description or not cron:
-        raise HTTPException(400, "description and cron are required")
-    job = hub.scheduler.add(description, cron, job_id=payload.get("id"))
-    return job.to_dict()
-
-
-@app.delete("/api/schedules/{job_id}")
-async def delete_schedule(job_id: str) -> dict[str, Any]:
-    hub: HubState = app.state.hub
-    assert hub.scheduler
-    ok = hub.scheduler.remove(job_id)
-    return {"removed": ok}
 
 
 # ------------------------------------------------------------------- config
@@ -469,10 +418,30 @@ else:
 
 
 def run() -> None:  # pragma: no cover - entrypoint
+    import shutil
+    import socket
+    import subprocess
     import uvicorn
+
+    # Ollama auto-start: if binary exists and port 11434 is free
+    if shutil.which("ollama"):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("localhost", 11434)) != 0:
+                subprocess.Popen(["ollama", "serve"])
+                logger.info("Ollama auto-started on port 11434")
 
     host = os.environ.get("OPENCOWORK_HOST", "0.0.0.0")
     port = int(os.environ.get("OPENCOWORK_PORT", "7337"))
+
+    # Port auto-fallback: scan upward if default is in use
+    for port in range(port, port + 8):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("localhost", port)) != 0:
+                break
+
+    url = f"http://{host}:{port}"
+    print(f"OpenCowork running at {url}")
+    logger.info("OpenCowork running at %s", url)
     uvicorn.run("backend.main:app", host=host, port=port, reload=False)
 
 
