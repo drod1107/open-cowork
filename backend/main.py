@@ -40,6 +40,8 @@ from .sessions import (
 )
 from .tools.registry import build_registry
 
+BUILTIN_PROVIDERS = {"ollama", "lmstudio", "vllm", "sglang", "nvidia"}
+
 logger = logging.getLogger(__name__)
 
 
@@ -266,6 +268,36 @@ async def read_config() -> dict[str, Any]:
 @app.put("/api/config")
 async def write_config(payload: dict[str, Any]) -> dict[str, Any]:
     save_config(payload)
+    return {"ok": True}
+
+
+# -------------------------------------------------------------- providers
+@app.post("/api/providers")
+async def add_provider(payload: dict[str, Any]) -> dict[str, Any]:
+    nickname = payload.get("nickname")
+    base_url = payload.get("base_url")
+    provider_type = payload.get("provider_type")
+    if not nickname or not base_url or not provider_type:
+        raise HTTPException(422, "nickname, base_url, and provider_type are required")
+    cfg = load_config()
+    providers = cfg.setdefault("providers", {})
+    if nickname in providers:
+        raise HTTPException(409, f"provider '{nickname}' already exists")
+    providers[nickname] = {"type": provider_type, "base_url": base_url}
+    save_config(cfg)
+    return {"ok": True}
+
+
+@app.delete("/api/providers/{name}")
+async def delete_provider(name: str) -> dict[str, Any]:
+    if name in BUILTIN_PROVIDERS:
+        raise HTTPException(403, f"cannot delete built-in provider '{name}'")
+    cfg = load_config()
+    providers = cfg.get("providers", {})
+    if name not in providers:
+        raise HTTPException(404, f"provider '{name}' not found")
+    del providers[name]
+    save_config(cfg)
     return {"ok": True}
 
 

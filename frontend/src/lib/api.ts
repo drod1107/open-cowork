@@ -39,4 +39,20 @@ export const api = {
     fetch(`/api/sessions/${id}`).then((r) =>
       json<{ id: string; messages: Array<{ role: string; content: string }>; metadata: { title?: string }; created_at: string; updated_at: string }>(r),
     ),
+
+  addProvider: (nickname: string, base_url: string, provider_type: string) =>
+    fetch("/api/providers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname, base_url, provider_type }),
+    }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ ok: boolean }>(r);
+    }),
+
+  deleteProvider: (name: string) =>
+    fetch(`/api/providers/${encodeURIComponent(name)}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ ok: boolean }>(r);
+    }),
 };

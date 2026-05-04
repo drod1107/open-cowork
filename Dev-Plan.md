@@ -61,7 +61,7 @@
   - If user clicks "No": NO ping ever sent to NVIDIA unless user manually tries to select it from provider dropdown again
   - If "No" was selected, provider appears greyed out with "Disconnected" and note: "User declined connection"
 - Editable fields (change port, use Tailscale URL, etc.)
-- Plus button for custom provider form: text inputs for all required fields, greyed-out tooltips as placeholders, no defaults
+- Plus button in Settings > Model Providers subsection: opens popup form with provider type dropdown (Ollama, LM Studio, vLLM, SGLang, NVIDIA, Custom). Known providers pre-populate default base_url; Custom opens blank form. API key field optional (for NVIDIA/Custom). This is the ONLY way to add providers — no text box clutter in main UI.
 - Provider ping: only when app opens (for local providers), user updates config, or opens dropdown. Green = active, Greyed out + "Disconnected" = failed. Error message shown under provider name.
 - Multiple providers stored in config.toml, persists across restarts
 

@@ -1,6 +1,10 @@
 provider = "ollama"
 base_url = "http://localhost:11434"
 
+[providers.ollama]
+type = "ollama"
+base_url = "http://localhost:11434"
+
 [agent]
 max_turns = 50
 system_prompt = "You are OpenCowork, a local co-working agent running on the user's own hardware.\n\nGuiding principles:\n- Prefer the shell tool for anything that can be done from a terminal.\n- Every action may be gated for permission; if denied, acknowledge it and suggest an alternative.\n- Summarize concisely. Do not narrate every thought.\n"
