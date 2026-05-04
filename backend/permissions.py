@@ -81,8 +81,10 @@ class PermissionGate:
         self._prompter = prompter
 
     # ---------------------------------------------------------------- helpers
-    def _get_permissions(self) -> dict[str, Any]:
-        cfg = load_config(self._config_path)
+    def _load_cfg(self) -> dict[str, Any]:
+        return load_config(self._config_path)
+
+    def _get_permissions(self, cfg: dict[str, Any]) -> dict[str, Any]:
         return cfg.get("permissions", {})
 
     def _lookup_default(self, perms: dict[str, Any], category: str, action: str) -> str:
@@ -103,7 +105,13 @@ class PermissionGate:
         *,
         description: str | None = None,
     ) -> PermissionResult:
-        perms = self._get_permissions()
+        # 0) tool toggle — if the tool is OFF, deny unconditionally.
+        # This overrides allowlists, defaults, and even "approve-always" persists.
+        cfg = load_config(self._config_path)
+        if not cfg.get("tools", {}).get(category, True):
+            return PermissionResult(False, f"{category} tool is disabled by toggle")
+
+        perms = cfg.get("permissions", {})
         sub = perms.get(category, {})
 
         # 1) explicit blocklist
@@ -156,7 +164,7 @@ class PermissionGate:
 
     # ---------------------------------------------------------------- persist
     def _persist(self, category: str, action: str, *, allow: bool) -> None:
-        cfg = load_config(self._config_path)
+        cfg = self._load_cfg()
         perms = cfg.setdefault("permissions", {}).setdefault(category, {})
         allowed_key, blocked_key = _CATEGORY_LIST_KEYS.get(category, (None, None))
         key = allowed_key if allow else blocked_key
