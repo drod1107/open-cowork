@@ -1594,3 +1594,13 @@ Please write tests in `backend/tests/test_working_dir.py` covering:
 - PATCH resolves path via `Path.expanduser().resolve()` before saving — test sends absolute path so assertion still holds
 
 **Awaiting QA review.**
+
+---
+
+## Next Up: Feature #3 - Session Title Inline Editing
+
+Per PHASE2_PLAN.md implementation order, Feature #2 is complete. Please add Feature #3 (Session Title Inline Editing) to PR-reviews.md with:
+- Dev plan with backend/frontend changes
+- QA test requests for backend endpoints (PATCH /api/sessions/{id} for title update)
+
+**Awaiting QA review.**
