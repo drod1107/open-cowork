@@ -1280,3 +1280,54 @@ Yes! The spillover code (`tools/spillover.py`) exists and works. Those 6 tests v
 4. Dev implements code to pass tests
 5. QA approves
 6. Repeat
+
+---
+
+## Dev Feedback on QA Tests (commit eb21cee) — 2026-05-03
+
+QA wrote 4 new test files. Spillover tests pass (6/6). The other 3 files (scheduler, session endpoints, model endpoints) all fail because TestClient doesn't run the lifespan — `app.state.hub` is never initialized. That's a straightforward fix (conftest hub fixture).
+
+Beyond the hub fix, there are **4 genuine design disagreements** where QA's tests describe a different API than what exists. Dev is NOT adding shims/aliases to paper over these — flagging for QA to decide:
+
+### Disagreement 1: Scheduler API style
+- **QA expects:** Module-level functions `add_job()`, `get_jobs()`, `remove_job()`
+- **Code has:** Class `Scheduler` with methods `add()`, `list()`, `remove()`
+- **Dev position:** The class API is cleaner and already wraps APScheduler. Adding module-level aliases is API bloat. QA to decide: adjust tests to use class API, or does QA want module-level functions instead?
+
+### Disagreement 2: Scheduler POST body
+- **QA sends:** `{name, func, trigger, seconds}` — raw APScheduler interval trigger
+- **Code expects:** `{description, cron}` — simplified cron-only wrapper
+- **Dev position:** These are fundamentally different designs, not a naming difference. Our scheduler deliberately hides APScheduler's raw API behind a cron-only interface. Accepting both would be a leaky abstraction. QA to decide: should the endpoint accept interval triggers too, or should tests use cron format?
+
+### Disagreement 3: Session PATCH body
+- **QA sends:** `{"title": "New Title"}` at top level
+- **Code expects:** `{"metadata": {"title": "New Title"}}` nested under metadata
+- **Dev position:** QA's version is simpler for the caller. Dev is willing to change the endpoint to accept top-level fields and auto-nest them under metadata. QA to confirm.
+
+### Disagreement 4: Async session functions called synchronously
+- **QA calls:** `sessions_mod.init_db()`, `create_session()`, `append_message()` as sync
+- **Code has:** All three are `async` (aiosqlite)
+- **Dev position:** This is a bug in the tests. These functions must be awaited. QA needs to wrap in `asyncio.run()` or use async test functions.
+
+### Disagreement 5: GET /api/models return shape
+- **QA expects:** bare `list`
+- **Code returns:** `{"provider": ..., "base_url": ..., "models": [...], "selected": ...}` dict
+- **Dev position:** QA's bare list is simpler. But current shape carries useful metadata (which provider, which model is selected). If frontend only needs the list, Dev can simplify. QA to decide.
+
+### Disagreement 6: GET /api/schedules return shape
+- **QA expects:** bare `list`
+- **Code returns:** `{"schedules": [...]}` dict
+- **Dev position:** Same as Disagreement 5. QA's bare list is simpler. Either works. QA to decide.
+
+### Disagreement 7: POST /api/models/select return shape
+- **QA expects:** `{"ok": true}`
+- **Code returns:** `{"selected": "model-name"}`
+- **Dev position:** Both are reasonable. Dev could return `{"ok": true, "selected": "model-name"}` to satisfy both. QA to decide.
+
+### Shim work explicitly rejected
+Dev will NOT add: `add_job`/`get_jobs`/`remove_job` aliases, scheduler field remapping, or sync wrappers for async functions. These add complexity without product value. Awaiting QA decision on each disagreement.
+
+### Action taken
+- Conftest hub fixture added — resolves `app.state.hub` KeyError for all TestClient-based tests
+- Remaining 10 test failures are all design disagreements listed above
+- CLAUDE.md deleted per PM instruction (phantom "DONE" items were context pollution)
