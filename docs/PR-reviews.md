@@ -1865,6 +1865,117 @@ Please write tests in `backend/tests/test_web_tool.py` covering:
 
 **Awaiting implementation.**
 
+### Dev Plan — Revised (Research-Backed)
+
+The original plan above was a sketch without resolved dependencies. Below is the revised plan after proper research.
+
+**Research Findings:**
+
+1. **httpx** — Already in `requirements.txt` (v0.27.2, installed). No new dep needed for HTTP.
+
+2. **DuckDuckGo HTML search** — Live-tested. Works with a `User-Agent` header set. Without it, DDG serves a CAPTCHA. Structure of real results:
+   - Container: `<div class="result results_links results_links_deep web-result">`
+   - Title: `<a class="result__a" href="//duckduckgo.com/l/?uddg=ENCODED_URL&amp;rut=...">Title</a>`
+   - URL is in the `uddg` query parameter of the redirect link (URL-encoded)
+   - Snippet: `<a class="result__snippet" href="...">Snippet text</a>`
+   - DDG Instant Answer API (`api.duckduckgo.com/?format=json`) returns empty `Results` for general queries — not useful for web search, only for instant answers.
+
+3. **HTML parsing** — No parser lib in project. `html.parser` (stdlib) requires writing a custom parser — brittle for real-world HTML. Regex is fragile. Adding `beautifulsoup4` is the standard, robust choice. Will use `html.parser` as bs4 backend (no need for `lxml`).
+
+4. **PermissionGate constructor** — QA's tests call `PermissionGate(config_path=None, tools={"web": True})` and set `gate.permissions = {"web": {"fetch_url": "deny"}}`. Current `__init__` signature only accepts `prompter, config_path, timeout_seconds` — does NOT accept `tools` or `permissions` kwargs. Must extend `PermissionGate.__init__` to support these as optional DI overrides.
+
+5. **QA test mock HTML for search_web** — `<a class="result" href="https://example.com">Example Title</a>` (simpler than real DDG). Parser must handle both: QA's `class="result"` and real DDG's `class="result__a"`.
+
+**Resolved Design Decisions:**
+
+**A. PermissionGate modification (backend/permissions.py):**
+- Add `tools: dict | None = None` and `permissions: dict | None = None` as optional kwargs to `__init__`
+- Store as `self.tools` and `self.permissions` (None in production, dict in tests)
+- In `check()` step 0 (toggle): if `self.tools is not None`, use `self.tools.get(category, True)` instead of `cfg.get("tools", {}).get(category, True)`
+- In `check()` step 3 (default lookup): if `self.permissions is not None`, use `self.permissions.get(category, {})` instead of `cfg.get("permissions", {}).get(category, {})`
+- This is clean DI: production passes None (uses disk config), tests pass dict (uses in-memory override). No gaming — the toggle/permission logic is identical, just the data source differs.
+- Backward compat: existing shell tests use `tmp_config` fixture (disk-based), so `self.tools = None` → falls through to disk → no behavior change.
+
+**B. HTML parsing (new dep):**
+- Add `beautifulsoup4` to `backend/requirements.txt`
+- Parse with `BeautifulSoup(html, "html.parser")` (stdlib backend, no lxml needed)
+- Search for `<a>` tags where class contains "result" (handles both QA mock `class="result"` and real DDG `class="result__a"`)
+- For real DDG: extract actual URL from `uddg` query param in redirect links via `urllib.parse.parse_qs`
+- For QA mock: `href` is the direct URL (no redirect wrapper)
+
+**C. fetch_url implementation (backend/tools/web.py):**
+- Signature: `async def fetch_url(url: str, *, gate: PermissionGate, max_bytes: int = 500_000, config_path: str | None = None) -> dict`
+- Step 1: call `gate.check("web", "fetch_url", description=f"Fetch URL: {url}")` — this handles BOTH toggle check (step 0) and permission check (steps 1-4) in one call
+- If gate.check returns not allowed: return `{"error": result.reason, "status": "denied"}` (for permission deny) or `{"error": result.reason, "status": "disabled"}` (for toggle off — reason contains "disabled by toggle")
+- Step 2: HTTP GET via `httpx.AsyncClient` with 30s timeout
+- Step 3: Content-type check — whitelist `text/*`, `application/json`, `application/xml`, `application/javascript`, `application/xhtml+xml`. If content-type doesn't match whitelist, return `{"error": "Binary content-type not supported: {ct}", "status": "error"}`
+- Step 4: Size limit — if `len(response.text) > max_bytes`, truncate and use `maybe_spillover`
+- Step 5: Return `{"content": text, "status": "ok", "url": url, "content_type": ct}`
+
+**D. search_web implementation (backend/tools/web.py):**
+- Signature: `async def search_web(query: str, *, gate: PermissionGate, config_path: str | None = None) -> dict`
+- Step 1: call `gate.check("web", "search_web", description=f"Search web: {query}")`
+- If not allowed: return `{"error": result.reason, "status": "denied"}` or `{"error": result.reason, "status": "disabled"}`
+- Step 2: HTTP GET `https://html.duckduckgo.com/html/?q={url_encoded_query}` via `httpx.AsyncClient`, with `User-Agent: OpenCowork/1.0` header, 30s timeout
+- Step 3: Parse with BeautifulSoup — find `<a>` tags with class containing "result", extract title (`.get_text()`) and URL (`href`)
+- For DDG redirect URLs: parse `uddg` param to get real URL; if no `uddg`, use href as-is
+- Step 4: Return `{"results": [{"title": ..., "url": ..., "snippet": ...}, ...]}` — top 5 results
+- Step 5: If CAPTCHA detected (response contains "anomaly-modal"), return `{"error": "Search blocked by DuckDuckGo bot detection", "status": "error"}`
+
+**E. Kill-switch integration (backend/tools/web.py):**
+- Both functions wrap HTTP request in an `asyncio.Task` and accept `on_web_task: Callable[[asyncio.Task], None] | None = None` callback
+- On entry: if `on_web_task`, register the task
+- On completion: if `on_web_task`, unregister (pass None or completed task)
+- Note: QA's 6 tests don't verify kill-switch wiring — this is implemented per dev plan but untested by current QA suite
+
+**F. registry.py changes:**
+- Add `from . import web as web_tool`
+- Register `fetch_url` ToolSpec: params `{"url": {"type": "string", "description": "URL to fetch"}}`
+- Register `search_web` ToolSpec: params `{"query": {"type": "string", "description": "Search query"}}`
+- Handler wrappers: `_fetch_url(args)` calls `web_tool.fetch_url(args["url"], gate=gate)`, `_search_web(args)` calls `web_tool.search_web(args["query"], gate=gate)`
+- `build_registry` signature unchanged — `on_web_task` callback wired in `main.py`, passed to web functions via closure
+
+**G. config.toml changes:**
+- Add `web = true` under `[tools]`
+- Add `[permissions.web]` section (empty defaults — per-action "ask" fallback per permissions.py:93-95)
+
+**H. main.py changes:**
+- In `build_agent`: pass `on_web_task` callback to `build_registry` or wire via closure so web tasks register with `HubState.register_tool("web", task)`
+
+**I. Frontend (Permissions.tsx):**
+- Add Web Tool toggle in Tools subsection (same pattern as Shell toggle)
+- Add Web permissions subsection: separate entries for `fetch_url` and `search_web` defaults (ask/allow/deny cycle)
+
+**Dependency changes:**
+- Add `beautifulsoup4` to `backend/requirements.txt`
+
+**What changes (revised):**
+- Modified: `backend/permissions.py` (add tools/permissions DI kwargs to __init__ + check() override paths)
+- New file: `backend/tools/web.py`
+- Modified: `backend/tools/registry.py` (add fetch_url + search_web specs)
+- Modified: `backend/main.py` (wire on_web_task callback)
+- Modified: `backend/config/config.toml` (add tools.web + permissions.web)
+- Modified: `backend/requirements.txt` (add beautifulsoup4)
+- Modified: `frontend/src/components/Permissions.tsx` (web toggle + web permissions)
+
+**What does NOT change:**
+- No new REST endpoints
+- No WebSocket protocol changes
+- Agent loop unchanged — tools register via same ToolSpec pattern
+- Kill-switch already handles "web" category via Feature #4's `_active_tools` dict
+- Existing shell tests unaffected (PermissionGate backward compat — None defaults → disk config)
+
+**Implementation order:**
+1. Add `beautifulsoup4` to requirements.txt, install
+2. Modify `backend/permissions.py` — add tools/permissions DI kwargs + check() overrides
+3. Create `backend/tools/web.py` — fetch_url + search_web
+4. Update `backend/tools/registry.py` — register web tools
+5. Update `backend/config/config.toml` — add web tool config
+6. Update `backend/main.py` — wire on_web_task callback
+7. Update `frontend/src/components/Permissions.tsx` — web toggle + permissions UI
+8. Run QA tests (`test_web_tool.py`) + full backend suite
+9. Commit + update PR-reviews.md
+
 ---
 
 ## Next Up: Feature #6 - Skills System
