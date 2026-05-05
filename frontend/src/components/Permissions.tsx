@@ -3,12 +3,17 @@ import { api } from "../lib/api";
 
 type ToolConfig = {
   shell?: boolean;
+  web?: boolean;
 };
 
 type PermConfig = {
   shell?: {
     allowed_commands?: string[];
     blocked_commands?: string[];
+  };
+  web?: {
+    fetch_url?: string;
+    search_web?: string;
   };
 };
 
@@ -151,6 +156,7 @@ export default function Permissions() {
   const tools = (cfg.tools ?? {}) as ToolConfig;
   const perms = (cfg.permissions ?? {}) as PermConfig;
   const shellPerms = perms.shell ?? {};
+  const webPerms = perms.web ?? {};
   const providers = (cfg.providers ?? {}) as Record<string, ProviderEntry>;
 
   return (
@@ -346,8 +352,29 @@ export default function Permissions() {
               }`}
             />
           </button>
-          <span className="ml-2">{tools.shell !== false ? "Enabled" : "Disabled"}</span>
-        </div>
+      <span className="ml-2">{tools.shell !== false ? "Enabled" : "Disabled"}</span>
+      </div>
+      <div className="flex justify-between items-center">
+        <span>Web Tool</span>
+        <button
+          role="switch"
+          aria-checked={tools.web !== false}
+          onClick={() =>
+            save({ ...cfg, tools: { ...tools, web: tools.web === false } })
+          }
+          data-testid="tool-web-toggle"
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            tools.web !== false ? "bg-sky-600" : "bg-slate-700"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              tools.web !== false ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+        <span className="ml-2">{tools.web !== false ? "Enabled" : "Disabled"}</span>
+      </div>
       </div>
 
       {/* Permissions Section - Shell only for MVP */}
@@ -411,9 +438,44 @@ export default function Permissions() {
                 {cmd}
               </button>
             ))}
+    </div>
+    </div>
+
+    {/* Permissions Section - Web */}
+    <div className="border border-slate-800 rounded-md p-2 space-y-2">
+      <div className="font-semibold">Permissions (Web)</div>
+      {(["fetch_url", "search_web"] as const).map((action) => {
+        const current = webPerms[action] ?? "ask";
+        const next = current === "ask" ? "allow" : current === "allow" ? "deny" : "ask";
+        const color =
+          current === "allow"
+            ? "bg-emerald-800 text-emerald-200"
+            : current === "deny"
+            ? "bg-red-800 text-red-200"
+            : "bg-slate-800 text-slate-300";
+        return (
+          <div key={action} className="flex justify-between items-center">
+            <span className="font-mono">{action}</span>
+            <button
+              className={`${color} rounded-md px-2 py-0.5 text-xs`}
+              onClick={() =>
+                save({
+                  ...cfg,
+                  permissions: {
+                    ...perms,
+                    web: { ...webPerms, [action]: next },
+                  },
+                })
+              }
+              data-testid={`web-perm-${action}`}
+            >
+              {current}
+            </button>
           </div>
-        </div>
-      </div>
+        );
+      })}
+    </div>
+  </div>
     </div>
   );
 }

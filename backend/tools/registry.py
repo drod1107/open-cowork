@@ -12,6 +12,7 @@ from ..agent import ToolSpec
 from ..permissions import PermissionGate
 from . import shell as shell_tool
 from . import spillover as spillover_mod
+from . import web as web_tool
 
 
 def build_registry(
@@ -19,6 +20,7 @@ def build_registry(
     *,
     working_dir: str | Path = ".",
     on_shell_pid: Callable[[int], None] | None = None,
+    on_web_task: Callable[[Any], None] | None = None,
 ) -> dict[str, ToolSpec]:
     reg: dict[str, ToolSpec] = {}
 
@@ -62,6 +64,34 @@ def build_registry(
             "required": ["file_id"],
         },
         handler=_read_chunk,
+    )
+
+    async def _fetch_url(args: dict[str, Any]) -> dict[str, Any]:
+        return await web_tool.fetch_url(args["url"], gate=gate, on_web_task=on_web_task)
+
+    reg["fetch_url"] = ToolSpec(
+        name="fetch_url",
+        description="Fetch a URL and return its text content. Only text-based content-types are supported (HTML, JSON, plain text, etc.).",
+        parameters={
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "URL to fetch"}},
+            "required": ["url"],
+        },
+        handler=_fetch_url,
+    )
+
+    async def _search_web(args: dict[str, Any]) -> dict[str, Any]:
+        return await web_tool.search_web(args["query"], gate=gate, on_web_task=on_web_task)
+
+    reg["search_web"] = ToolSpec(
+        name="search_web",
+        description="Search the web using DuckDuckGo and return top results with titles, URLs, and snippets.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Search query"}},
+            "required": ["query"],
+        },
+        handler=_search_web,
     )
 
     return reg

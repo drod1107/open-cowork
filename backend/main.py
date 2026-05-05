@@ -212,7 +212,7 @@ class HubState:
             max_turns=max_turns,
             num_ctx=num_ctx,
         )
-        agent.tools = build_registry(self.gate, working_dir=working_dir, on_shell_pid=self.add_shell_pid)
+        agent.tools = build_registry(self.gate, working_dir=working_dir, on_shell_pid=self.add_shell_pid, on_web_task=lambda t: self.register_tool("web", t))
         return agent
 
 

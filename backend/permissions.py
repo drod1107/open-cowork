@@ -69,11 +69,15 @@ class PermissionGate:
         *,
         config_path: Path | str | None = None,
         timeout_seconds: float = 60.0,
+        tools: dict[str, Any] | None = None,
+        permissions: dict[str, Any] | None = None,
     ) -> None:
         self._prompter = prompter
         self._config_path = config_path
         self._timeout = timeout_seconds
         self._lock = asyncio.Lock()
+        self.tools = tools
+        self.permissions = permissions
 
     def set_prompter(
         self, prompter: Callable[[PermissionRequest], Awaitable[dict[str, Any]]]
@@ -108,10 +112,11 @@ class PermissionGate:
         # 0) tool toggle — if the tool is OFF, deny unconditionally.
         # This overrides allowlists, defaults, and even "approve-always" persists.
         cfg = load_config(self._config_path)
-        if not cfg.get("tools", {}).get(category, True):
+        tools_cfg = self.tools if self.tools is not None else cfg.get("tools", {})
+        if not tools_cfg.get(category, True):
             return PermissionResult(False, f"{category} tool is disabled by toggle")
 
-        perms = cfg.get("permissions", {})
+        perms = self.permissions if self.permissions is not None else cfg.get("permissions", {})
         sub = perms.get(category, {})
 
         # 1) explicit blocklist
