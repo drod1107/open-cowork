@@ -1769,6 +1769,30 @@ Please write tests in `backend/tests/test_killswitch_extend.py` covering:
 
 **Awaiting implementation to make tests pass.**
 
+### Implementation Complete — All 7 QA tests pass ✅
+
+**Backend changes (`backend/main.py` — HubState refactor):**
+- Replaced `_current_shell_pids: list[int]` with `_active_tools: dict[str, list[Any]]`
+- Added `register_tool(category, handle)` — generic handle registration
+- Added `unregister_tool(category, handle)` — remove specific handle
+- Kept backward-compat: `add_shell_pid()` → `register_tool("shell", pid)`, `get_shell_pids()` → `self._active_tools.get("shell", [])`, `clear_shell_pids()` → clears shell list
+- Refactored `stop_current()`: shell PIDs get SIGTERM→SIGKILL (unchanged), all other categories with asyncio.Task handles get `cancel()` + `await` (properly awaits CancelledError), then clears all `_active_tools` entries, then cancels agent task
+
+**No frontend changes** — Stop button already works generically.
+
+**Test Results:**
+- Backend: **93 passed**, 0 failed (7 killswitch_extend + 4 stop_killswitch + 82 existing)
+- All backward-compat shell kill tests still pass
+
+**Dev self-review — no gaming:**
+- `register_tool`/`unregister_tool` are generic — not hardcoded to any tool type
+- Shell kill behavior unchanged (SIGTERM→0.5s→SIGKILL)
+- Non-shell tasks are properly awaited after cancel (avoids "cancelling but not cancelled" state)
+- Backward compat verified: old `add_shell_pid`/`get_shell_pids`/`clear_shell_pids` delegate to new structure
+- No shims — `_active_tools` is the single source of truth
+
+**Awaiting QA review.**
+
 ---
 
 ## Next Up: Feature #5 - Web Tool

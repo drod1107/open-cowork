@@ -71,30 +71,39 @@ class HubState:
         self._ws_clients: set[WebSocket] = set()
         self._selected_model: str | None = None
         self._current_task: asyncio.Task | None = None
-        self._current_shell_pids: list[int] = []
+        self._active_tools: dict[str, list[Any]] = {"shell": []}
 
     def set_current_task(self, task: asyncio.Task | None) -> None:
         self._current_task = task
 
+    def register_tool(self, category: str, handle: Any) -> None:
+        self._active_tools.setdefault(category, []).append(handle)
+
+    def unregister_tool(self, category: str, handle: Any) -> None:
+        handles = self._active_tools.get(category, [])
+        if handle in handles:
+            handles.remove(handle)
+
     def get_shell_pids(self) -> list[int]:
-        return self._current_shell_pids
+        return self._active_tools.get("shell", [])
 
     def clear_shell_pids(self) -> None:
-        self._current_shell_pids = []
+        self._active_tools["shell"] = []
 
     def add_shell_pid(self, pid: int) -> None:
-        self._current_shell_pids.append(pid)
+        self.register_tool("shell", pid)
 
     async def stop_current(self) -> None:
-        """Cancel the current agent task and kill any running shell processes."""
-        for pid in self._current_shell_pids:
+        """Cancel the current agent task and kill all active tool handles."""
+        shell_pids = self._active_tools.get("shell", [])
+        for pid in shell_pids:
             try:
                 os.kill(pid, 15)  # SIGTERM — graceful stop
             except Exception:
                 pass
-        if self._current_shell_pids:
+        if shell_pids:
             await asyncio.sleep(0.5)
-        for pid in self._current_shell_pids:
+        for pid in shell_pids:
             try:
                 os.kill(pid, 0)  # check if still alive
                 os.kill(pid, 9)  # SIGKILL — force
@@ -102,14 +111,25 @@ class HubState:
                 pass
             except Exception:
                 pass
-        self._current_shell_pids = []
+        for category, handles in self._active_tools.items():
+            if category == "shell":
+                continue
+            for handle in handles:
+                if isinstance(handle, asyncio.Task) and not handle.done():
+                    handle.cancel()
+                    try:
+                        await handle
+                    except asyncio.CancelledError:
+                        pass
+        for category in self._active_tools:
+            self._active_tools[category] = []
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
             try:
                 await self._current_task
             except asyncio.CancelledError:
                 pass
-        self._current_task = None
+            self._current_task = None
 
     # ------------------------------------------------------------ WS broker
     async def register_ws(self, ws: WebSocket) -> None:
