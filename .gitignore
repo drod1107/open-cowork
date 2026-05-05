@@ -75,3 +75,6 @@ Thumbs.db
 
 # --- Local config overrides ---
 backend/config/config.local.toml
+
+# --- Planning docs (local only, never push to remote) ---
+docs/
