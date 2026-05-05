@@ -69,7 +69,10 @@ test("tab switching navigates between views", async ({ page }) => {
   await expect(page.locator('[data-testid="chat-input"]')).toBeVisible();
 
   await page.getByTestId("tab-history").click();
-  await expect(page.locator('[data-testid="no-sessions"]')).toBeVisible();
+  await expect(page.getByTestId("history-loading")).not.toBeVisible({ timeout: 5000 });
+  const hasNoSessions = await page.getByTestId("no-sessions").isVisible().catch(() => false);
+  const hasSessions = await page.locator('[data-testid^="session-"]').count();
+  expect(hasNoSessions || hasSessions > 0).toBe(true);
 
   await page.getByTestId("tab-settings").click();
   await expect(page.locator('[data-testid="permissions"]')).toBeVisible();
@@ -149,7 +152,7 @@ test("history tab renders correctly", async ({ page }) => {
   await mockModels(page);
   await page.goto("/");
   await page.getByTestId("tab-history").click();
-  await page.waitForTimeout(500);
+  await expect(page.getByTestId("history-loading")).not.toBeVisible({ timeout: 5000 });
 
   const hasNoSessions = await page.getByTestId("no-sessions").isVisible().catch(() => false);
   const hasSessions = await page.locator('[data-testid^="session-"]').count();

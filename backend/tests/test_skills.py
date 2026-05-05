@@ -108,10 +108,9 @@ async def test_use_skill_command_activates_skill(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_use_skill_injects_into_system_prompt(tmp_config, monkeypatch):
+async def test_use_skill_injects_into_system_prompt(tmp_path, monkeypatch):
     """Test when skill is active, content is appended to system prompt in build_agent()."""
-    # This tests the injection logic - skill content should be in system prompt when built
-    skills_dir = tmp_config / "skills"
+    skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
     (skills_dir / "test-skill.md").write_text("Always check tests first")
     
@@ -131,7 +130,7 @@ async def test_use_skill_injects_into_system_prompt(tmp_config, monkeypatch):
     hub = HubState()
     
     # Create mock session with active skill
-    db_path = tmp_config / "sessions.db"
+    db_path = tmp_path / "sessions.db"
     monkeypatch.setattr(sessions_mod, "DB_PATH", db_path)
     await sessions_mod.init_db()
     session = await sessions_mod.create_session()

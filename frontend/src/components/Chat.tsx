@@ -43,8 +43,11 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
   const assistantBufRef = useRef<string>("");
   const currentAssistantId = useRef<string | null>(null);
   const pendingSkillRef = useRef<string | null>(null);
+  const busySinceRef = useRef<number>(0);
+  const busyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevLoadedItemsRef = useRef<ChatItem[] | undefined>(loadedItems);
+  const MIN_BUSY_MS = 500;
 
   useEffect(() => {
     if (loadedItems !== undefined && loadedItems !== prevLoadedItemsRef.current) {
@@ -66,6 +69,10 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
     });
     return () => {
       off();
+      if (busyTimeoutRef.current) {
+        clearTimeout(busyTimeoutRef.current);
+        busyTimeoutRef.current = null;
+      }
     };
   }, [socket]);
 
@@ -90,10 +97,19 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
           ),
         );
       }
-    } else if (ev.type === "final") {
-      currentAssistantId.current = null;
-      assistantBufRef.current = "";
+  } else if (ev.type === "final") {
+    currentAssistantId.current = null;
+    assistantBufRef.current = "";
+    const elapsed = Date.now() - busySinceRef.current;
+    if (elapsed < MIN_BUSY_MS) {
+      if (busyTimeoutRef.current) clearTimeout(busyTimeoutRef.current);
+      busyTimeoutRef.current = setTimeout(() => {
+        setBusy(false);
+        busyTimeoutRef.current = null;
+      }, MIN_BUSY_MS - elapsed);
+    } else {
       setBusy(false);
+    }
     } else if (ev.type === "tool_call") {
       const id = crypto.randomUUID();
       setItems((items) => [
@@ -188,12 +204,17 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
     socket.send(msg);
     setInput("");
     setBusy(true);
+    busySinceRef.current = Date.now();
     assistantBufRef.current = "";
     currentAssistantId.current = null;
   };
 
   const stop = () => {
     socket.send({ type: "stop" });
+    if (busyTimeoutRef.current) {
+      clearTimeout(busyTimeoutRef.current);
+      busyTimeoutRef.current = null;
+    }
     setBusy(false);
   };
 

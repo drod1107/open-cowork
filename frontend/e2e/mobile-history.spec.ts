@@ -38,8 +38,9 @@ test.describe("Mobile history tab", () => {
     const page = await context.newPage();
     await mockModels(page);
 
-    await page.goto("/");
+await page.goto("/");
     await page.getByTestId("tab-history").click();
+    await expect(page.getByTestId("history-loading")).not.toBeVisible({ timeout: 5000 });
 
     const sessions = page.locator('[data-testid^="session-"]');
     const count = await sessions.count();
@@ -47,28 +48,6 @@ test.describe("Mobile history tab", () => {
       await expect(page.getByTestId("no-sessions")).toBeVisible();
     } else {
       await expect(sessions.first()).toBeVisible();
-    }
-
-    await context.close();
-  });
-
-  test("sessions list shows when sessions exist", async ({ browser }) => {
-    const context = await mobileContext(browser);
-    const page = await context.newPage();
-    await mockModels(page);
-
-    await page.goto("/");
-    await page.getByTestId("tab-history").click();
-
-    await page.waitForTimeout(1000);
-
-    const sessions = page.locator('[data-testid^="session-"]');
-    const count = await sessions.count();
-
-    if (count > 0) {
-      await expect(sessions.first()).toBeVisible();
-    } else {
-      await expect(page.getByTestId("no-sessions")).toBeVisible();
     }
 
     await context.close();
@@ -89,6 +68,7 @@ test.describe("Mobile history tab", () => {
 
     await page.goto("/");
     await page.getByTestId("tab-history").click();
+    await expect(page.getByTestId("history-loading")).not.toBeVisible({ timeout: 5000 });
 
     const sessionItem = page.getByTestId(`session-${sessions[0].id}`);
     await sessionItem.click();
@@ -137,6 +117,7 @@ await context.close();
     await page.goto("/");
 
     await page.getByTestId("tab-history").click();
+    await expect(page.getByTestId("history-loading")).not.toBeVisible({ timeout: 5000 });
     const sessions = page.locator('[data-testid^="session-"]');
     const count = await sessions.count();
     if (count === 0) {

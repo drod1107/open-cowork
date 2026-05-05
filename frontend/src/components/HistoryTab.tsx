@@ -13,11 +13,14 @@ export default function History({ onSelect, onDelete, refreshKey }: HistoryProps
     metadata: { title?: string };
     updated_at: string;
   }>>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     api.listSessions()
       .then((data) => setSessions(data.sessions || []))
-      .catch(() => setSessions([]));
+      .catch(() => setSessions([]))
+      .finally(() => setLoading(false));
   }, [refreshKey]);
 
   const formatDate = (dateStr: string) => {
@@ -30,7 +33,9 @@ export default function History({ onSelect, onDelete, refreshKey }: HistoryProps
 
   return (
     <div className="p-3 text-xs text-slate-500">
-      {sessions.length === 0 ? (
+      {loading ? (
+        <div data-testid="history-loading">Loading…</div>
+      ) : sessions.length === 0 ? (
         <div data-testid="no-sessions">No sessions yet</div>
       ) : (
         <div className="space-y-2">
