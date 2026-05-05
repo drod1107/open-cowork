@@ -4,7 +4,7 @@ Verifies:
 - GET /api/config/working_dir returns config value
 - GET resolves "." to absolute CWD path
 - PATCH /api/config/working_dir updates config
-- PATCH rejects nonexistent paths (400)
+- PATCH auto-creates nonexistent paths
 - PATCH rejects file paths (400)
 - PATCH validates required field (422)
 """
@@ -83,16 +83,23 @@ def test_patch_working_dir_updates_config(clean_config, monkeypatch):
     assert cfg["runtime"]["working_dir"] == test_path
 
 
-def test_patch_working_dir_rejects_nonexistent_path(clean_config, monkeypatch):
-    """Test PATCH with path that doesn't exist returns 400."""
+def test_patch_working_dir_auto_creates_nonexistent_path(clean_config, monkeypatch):
+    """Test PATCH with path that doesn't exist auto-creates it and returns 200."""
     from backend import config_loader
     monkeypatch.setattr(config_loader, "DEFAULT_CONFIG_PATH", clean_config)
 
+    new_dir = str(clean_config.parent / "auto_created_dir")
+    assert not Path(new_dir).exists()
+
     response = client.patch(
         "/api/config/working_dir",
-        json={"working_dir": "/nonexistent/path/that/does/not/exist"}
+        json={"working_dir": new_dir}
     )
-    assert response.status_code == 400
+    assert response.status_code == 200
+    data = response.json()
+    assert "working_dir" in data
+    assert Path(new_dir).exists()
+    assert Path(new_dir).is_dir()
 
 
 def test_patch_working_dir_rejects_file_path(clean_config, monkeypatch):

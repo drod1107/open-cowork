@@ -330,10 +330,10 @@ async def get_working_dir() -> dict[str, str]:
 @app.patch("/api/config/working_dir")
 async def patch_working_dir(payload: WorkingDirUpdate) -> dict[str, str]:
     p = Path(payload.working_dir).expanduser().resolve()
+    if p.exists() and not p.is_dir():
+        raise HTTPException(400, f"path exists but is not a directory: {p}")
     if not p.exists():
-        raise HTTPException(400, f"path does not exist: {p}")
-    if not p.is_dir():
-        raise HTTPException(400, f"path is not a directory: {p}")
+        p.mkdir(parents=True, exist_ok=True)
     cfg = config_loader.load_config()
     cfg.setdefault("runtime", {})["working_dir"] = str(p)
     config_loader.save_config(cfg)

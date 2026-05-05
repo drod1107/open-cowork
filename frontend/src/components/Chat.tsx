@@ -42,6 +42,7 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
   const [allSkills, setAllSkills] = useState<Array<{ name: string; description: string }>>([]);
   const assistantBufRef = useRef<string>("");
   const currentAssistantId = useRef<string | null>(null);
+  const pendingSkillRef = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevLoadedItemsRef = useRef<ChatItem[] | undefined>(loadedItems);
 
@@ -140,6 +141,17 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
       ]);
     } else if (ev.type === "session_id") {
       onSessionId?.(ev.session_id);
+      const pendingSkill = pendingSkillRef.current;
+      if (pendingSkill) {
+        pendingSkillRef.current = null;
+        api.useSkill(ev.session_id, pendingSkill).then((r) => {
+          const id = crypto.randomUUID();
+          setItems((items) => [...items, { kind: "assistant", text: `Skill "${r.activated}" activated for this session.`, id }]);
+        }).catch((e) => {
+          const id = crypto.randomUUID();
+          setItems((items) => [...items, { kind: "error", text: e.message, id }]);
+        });
+      }
     } else if (ev.type === "session_title") {
       onSessionTitle?.(ev.session_id, ev.title);
     }
@@ -148,15 +160,22 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
   const send = () => {
     if (!input.trim()) return;
     const useSkillMatch = input.trim().match(/^\/use-skill\s+(\S+)\s*$/);
-    if (useSkillMatch && sessionId) {
+    if (useSkillMatch) {
       const skillName = useSkillMatch[1];
-      api.useSkill(sessionId, skillName).then((r) => {
-        const id = crypto.randomUUID();
-        setItems((items) => [...items, { kind: "assistant", text: `Skill "${r.activated}" activated for this session.`, id }]);
-      }).catch((e) => {
-        const id = crypto.randomUUID();
-        setItems((items) => [...items, { kind: "error", text: e.message, id }]);
-      });
+      if (!sessionId) {
+        pendingSkillRef.current = skillName;
+        const itemId = crypto.randomUUID();
+        setItems((items) => [...items, { kind: "user", text: input, id: itemId }]);
+        socket.send({ type: "chat", text: `Activating skill: ${skillName}` });
+      } else {
+        api.useSkill(sessionId, skillName).then((r) => {
+          const id = crypto.randomUUID();
+          setItems((items) => [...items, { kind: "assistant", text: `Skill "${r.activated}" activated for this session.`, id }]);
+        }).catch((e) => {
+          const id = crypto.randomUUID();
+          setItems((items) => [...items, { kind: "error", text: e.message, id }]);
+        });
+      }
       setInput("");
       setSkillSuggestions([]);
       return;
@@ -196,7 +215,7 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
   return (
     <div className="flex flex-col h-full">
       {/* Chat history - scrollable */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3" ref={bottomRef}>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3" ref={bottomRef} data-testid="chat-messages">
         {items.map((it) => (
           <ChatCard key={it.id} item={it} onPermission={respondPermission} />
         ))}
@@ -249,7 +268,7 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
             data-testid="chat-input"
           />
           {skillSuggestions.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 bg-slate-800 border border-slate-700 rounded-md shadow-lg max-h-32 overflow-y-auto z-10">
+            <div className="absolute bottom-full left-0 mb-1 bg-slate-800 border border-slate-700 rounded-md shadow-lg max-h-32 overflow-y-auto z-10" data-testid="skill-suggestions">
               {skillSuggestions.map((s) => (
                 <button
                   key={s.name}
@@ -307,7 +326,7 @@ function ChatCard({
 }) {
   if (item.kind === "user") {
     return (
-      <div className="text-right">
+      <div className="text-right" data-testid="chat-message-user">
         <div className="inline-block bg-sky-700/40 rounded-xl px-3 py-2 text-sm max-w-[90%] whitespace-pre-wrap">
           {item.text}
         </div>
@@ -316,7 +335,7 @@ function ChatCard({
   }
   if (item.kind === "assistant") {
     return (
-      <div>
+      <div data-testid="chat-message-assistant">
         <div className="inline-block bg-slate-800 rounded-xl px-3 py-2 text-sm max-w-[90%] whitespace-pre-wrap">
           {item.text}
         </div>
@@ -325,7 +344,7 @@ function ChatCard({
   }
   if (item.kind === "tool") {
     return (
-      <div className="border border-slate-700 rounded-xl bg-slate-900/60 text-xs">
+      <div className="border border-slate-700 rounded-xl bg-slate-900/60 text-xs" data-testid="chat-message-tool">
         <div className="px-3 py-2">
           <span className="font-semibold text-sky-300">{item.tool}</span>
           <pre className="mt-1 bg-slate-950 rounded p-2 overflow-x-auto text-slate-300">
@@ -344,7 +363,7 @@ function ChatCard({
   }
   if (item.kind === "error") {
     return (
-      <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-200">
+      <div className="bg-red-900/20 border border-red-700 rounded-xl p-3 text-sm text-red-200" data-testid="chat-message-error">
         [error] {item.text}
       </div>
     );
@@ -352,8 +371,8 @@ function ChatCard({
   // permission
   const resolved = item.resolved;
   return (
-    <div className="border border-amber-600 rounded-xl p-3 bg-amber-900/20 text-sm">
-      <div className="font-semibold text-amber-300">
+    <div className="border border-amber-600 rounded-xl p-3 bg-amber-900/20 text-sm" data-testid="permission-request-card">
+      <div className="font-semibold text-amber-300" data-testid="permission-request-category">
         Permission request: {item.category}
       </div>
       <div className="font-mono text-xs mt-1 text-amber-100 break-all">
@@ -363,13 +382,14 @@ function ChatCard({
       {!resolved ? (
         <div className="flex flex-wrap gap-2 mt-2">
           {(["this time", "always", "no", "never"] as const).map((d) => (
-            <button
-              key={d}
-              className="text-xs bg-slate-800 hover:bg-slate-700 rounded-md px-2 py-1"
-              onClick={() => onPermission(item.id, d)}
-            >
-              {d}
-            </button>
+          <button
+            key={d}
+            className="text-xs bg-slate-800 hover:bg-slate-700 rounded-md px-2 py-1"
+            onClick={() => onPermission(item.id, d)}
+            data-testid={`permission-btn-${d.replace(/\s/g, "-")}`}
+          >
+            {d}
+          </button>
           ))}
         </div>
       ) : (

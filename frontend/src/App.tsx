@@ -38,8 +38,24 @@ export default function App() {
     };
   }, [socket]);
 
+  useEffect(() => {
+    const hash = window.location.hash;
+    const match = hash.match(/^#session=(.+)$/);
+    if (match) {
+      const sessionId = match[1];
+      api.getSession(sessionId).then((session) => {
+        setLoadedSession(session as unknown as LoadedSession);
+        setActiveSessionId(sessionId);
+        setSessionTitle(session.metadata?.title || null);
+      }).catch(() => {
+        window.location.hash = "";
+      });
+    }
+  }, []);
+
   const handleSessionId = (id: string) => {
     setActiveSessionId(id);
+    window.location.hash = `session=${id}`;
   };
 
   const handleSessionTitle = (_id: string, title: string) => {
@@ -54,6 +70,7 @@ export default function App() {
       setActiveSessionId(id);
       setSessionTitle(session.metadata?.title || null);
       setTab("chat");
+      window.location.hash = `session=${id}`;
     } catch {
       setTab("chat");
     }
@@ -66,10 +83,10 @@ export default function App() {
         setActiveSessionId(null);
         setLoadedSession(null);
         setSessionTitle(null);
+        window.location.hash = "";
       }
       setHistoryRefreshKey((k) => k + 1);
     } catch {
-      // ignore
     }
   };
 

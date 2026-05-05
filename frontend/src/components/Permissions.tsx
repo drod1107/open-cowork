@@ -299,7 +299,7 @@ export default function Permissions() {
     <div className="font-semibold">Working Directory</div>
     {!editingWorkingDir ? (
       <div className="flex items-center gap-2">
-        <span className="font-mono text-xs flex-1 break-all" data-testid="working-dir-display">{workingDir}</span>
+        <span className="font-mono text-xs flex-1 break-all" data-testid="working-dir-display">{workingDir || "…"}</span>
         <button
           className="bg-sky-700 hover:bg-sky-600 rounded-md px-2 py-0.5 text-xs"
           onClick={startEditWorkingDir}
