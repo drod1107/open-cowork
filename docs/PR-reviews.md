@@ -1597,10 +1597,57 @@ Please write tests in `backend/tests/test_working_dir.py` covering:
 
 ---
 
-## Next Up: Feature #3 - Session Title Inline Editing
+## Phase 2: Feature #3 — Session Title Inline Editing
 
-Per PHASE2_PLAN.md implementation order, Feature #2 is complete. Please add Feature #3 (Session Title Inline Editing) to PR-reviews.md with:
-- Dev plan with backend/frontend changes
-- QA test requests for backend endpoints (PATCH /api/sessions/{id} for title update)
+**Branch:** `Phase2-Expansion`
+**Feature:** Session Title Inline Editing (Feature #4 in PHASE2_PLAN.md)
+**Status:** DEV PLAN — Requesting QA tests
 
-**Awaiting QA review.**
+### Dev Plan
+
+**Goal:** Make the session title in the Chat tab header click-to-edit. User clicks → text input → types new title → Enter or blur saves, Escape cancels. New sessions get auto-generated title from first message.
+
+**Backend: ALREADY IMPLEMENTED ✅**
+
+- `PATCH /api/sessions/{session_id}` already exists (`main.py:345-353`)
+- Accepts `{"metadata": {"title": "new title"}}` → merges into session metadata
+- Returns 404 for non-existent session, 400 for missing metadata field
+- `update_session_metadata()` in `sessions.py` already handles merge + persist
+- No backend changes needed
+
+**Frontend (App.tsx — top bar title becomes editable):**
+
+1. Track `sessionTitle` state in App.tsx (derived from loadedSession metadata or default)
+2. Header shows session title text (clickable) instead of just "OpenCowork"
+3. Click on title → switches to text input (same position, same visual weight)
+4. Enter → `PATCH /api/sessions/{id}` with `{"metadata": {"title": input}}` → exits edit mode → refreshes history
+5. Escape → cancels edit, reverts to display mode
+6. Blur → same as Enter (save on blur)
+7. Auto-title: when a new session gets its first user message, auto-set title to first 50 chars of that message (trim to word boundary)
+8. HistoryTab already displays `session.metadata?.title || "New chat"` — no changes needed there
+
+**Test IDs:**
+- `session-title-display` — clickable title text in header
+- `session-title-input` — text input when editing
+- `session-title-save` — implicit (Enter/blur), no separate save button needed
+
+**What changes:**
+- `App.tsx`: Add sessionTitle state, click-to-edit UI in header, save handler calling PATCH, auto-title on first message
+- `Chat.tsx`: Add `onFirstMessage` callback prop so App can auto-title new sessions
+
+**What does NOT change:**
+- Backend — fully implemented already
+- `HistoryTab.tsx` — already reads and displays title from metadata
+- `api.ts` — `api.getSession()` already returns metadata; no new API methods needed (PATCH already exists as general session update)
+- No new REST endpoints
+
+### QA Tests Requested
+
+Since the backend already exists and was tested in `test_session_endpoints.py`, only frontend behavior needs verification. However, for completeness, please write tests in `backend/tests/test_session_title.py` covering:
+
+1. `test_patch_session_title_updates_metadata` — PATCH /api/sessions/{id} with `{"metadata": {"title": "My Title"}}` updates session metadata.title
+2. `test_patch_session_title_persists_across_get` — After PATCH, GET /api/sessions/{id} returns updated title
+3. `test_patch_session_title_on_nonexistent_session` — PATCH with invalid session_id returns 404
+4. `test_patch_session_empty_title` — PATCH with `{"metadata": {"title": ""}}` saves empty string (allows clearing title)
+
+**Awaiting QA tests.**
