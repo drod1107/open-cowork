@@ -1795,6 +1795,67 @@ Please write tests in `backend/tests/test_killswitch_extend.py` covering:
 
 ---
 
-## Next Up: Feature #5 - Web Tool
+## Phase 2: Feature #5 — Web Tool
 
-After Feature #4, please add Feature #5 (Web Tool - fetch + search) to PR-reviews.md.
+**Branch:** `Phase2-Expansion`
+**Feature:** Web Tool (Feature #3 in PHASE2_PLAN.md)
+**Status:** DEV PLAN — Requesting QA tests
+
+### Dev Plan
+
+**Goal:** Allow the agent to fetch URLs and search the web via two new tool functions, with permission gating and kill-switch integration.
+
+**Backend:**
+
+1. **`backend/tools/web.py`** — two async functions:
+   - `fetch_url(url: str, *, gate: PermissionGate, max_bytes: int = 500_000) -> dict` — HTTP GET the URL, return content with size limit, content-type filtering (only text/html, text/plain, application/json — reject binaries). Uses `maybe_spillover` for large responses. Permission category `"web"`, action `"fetch_url"`.
+   - `search_web(query: str, *, gate: PermissionGate) -> dict` — search via DuckDuckGo HTML (no API key needed — `https://html.duckduckgo.com/html/?q={query}`), parse results, return top 5 results (title + snippet + URL). Permission category `"web"`, action `"search_web"`.
+   - Both check the tool toggle first (`cfg["tools"]["web"]`) — if disabled, return error. Pattern matches shell tool's toggle check.
+   - Both check permission gate via `gate.check("web", action, description=...)`.
+   - Kill-switch integration: each function wraps its HTTP request in an `asyncio.Task` and registers it with `hub.register_tool("web", task)`, unregisters on completion.
+
+2. **`backend/tools/registry.py`** — register two new ToolSpecs:
+   - `fetch_url` — params: `{"url": {"type": "string", "description": "URL to fetch"}}`
+   - `search_web` — params: `{"query": {"type": "string", "description": "Search query"}}`
+   - Both need access to the permission gate and an `on_web_task` callback (for kill-switch registration).
+
+3. **`backend/config/config.toml`** — add:
+   - `[tools] web = true` (enabled by default)
+   - `[permissions.web]` section (already scaffolded in `permissions.py:93-95`)
+
+4. **`backend/main.py`** — wire `on_web_task` callback in `build_agent` so web tasks register with HubState.
+
+**Frontend:**
+
+1. **`Permissions.tsx`** — add to Tools subsection:
+   - Web Tool toggle (like Shell toggle) — `tools.web !== false`
+2. **`Permissions.tsx`** — add to Permissions section:
+   - Web permissions subsection: separate entries for `fetch_url` and `search_web` defaults
+   - Each shows current default (ask/allow/deny) and is clickable to cycle
+
+**What changes:**
+- New file: `backend/tools/web.py`
+- Modified: `backend/tools/registry.py` (add fetch_url + search_web specs)
+- Modified: `backend/main.py` (wire on_web_task callback)
+- Modified: `backend/config/config.toml` (add tools.web + permissions.web)
+- Modified: `frontend/src/components/Permissions.tsx` (web toggle + web permissions)
+- Modified: `frontend/src/lib/api.ts` (no changes — config read/write already handles tools.web)
+
+**What does NOT change:**
+- No new REST endpoints
+- No WebSocket protocol changes
+- Agent loop unchanged — tools register via same ToolSpec pattern
+- Kill-switch already handles "web" category via Feature #4's `_active_tools` dict
+
+### QA Tests Requested
+
+Please write tests in `backend/tests/test_web_tool.py` covering:
+
+1. `test_fetch_url_returns_content` — fetch_url with a mock HTTP response returns content dict
+2. `test_fetch_url_blocked_by_permission` — when permission gate denies "web"/"fetch_url", returns denied result
+3. `test_fetch_url_disabled_by_toggle` — when config has `tools.web = false`, returns disabled error
+4. `test_search_web_returns_results` — search_web with mock HTTP returns parsed results
+5. `test_search_web_blocked_by_permission` — when permission gate denies "web"/"search_web", returns denied result
+6. `test_fetch_url_rejects_binary_content_type` — when response has image/png content-type, returns error
+
+**Awaiting QA tests.**
