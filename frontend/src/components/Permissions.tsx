@@ -6,6 +6,11 @@ type ToolConfig = {
   web?: boolean;
 };
 
+type SkillConfig = {
+  enabled?: boolean;
+  dir?: string;
+};
+
 type PermConfig = {
   shell?: {
     allowed_commands?: string[];
@@ -26,6 +31,7 @@ type Config = {
   provider?: string;
   base_url?: string;
   tools?: ToolConfig;
+  skills?: SkillConfig;
   permissions?: PermConfig;
   providers?: Record<string, ProviderEntry>;
   [key: string]: unknown;
@@ -154,6 +160,7 @@ export default function Permissions() {
   if (!cfg) return <div className="p-3 text-xs text-slate-500">loading…</div>;
 
   const tools = (cfg.tools ?? {}) as ToolConfig;
+  const skills = (cfg.skills ?? {}) as SkillConfig;
   const perms = (cfg.permissions ?? {}) as PermConfig;
   const shellPerms = perms.shell ?? {};
   const webPerms = perms.web ?? {};
@@ -373,9 +380,36 @@ export default function Permissions() {
             }`}
           />
         </button>
-        <span className="ml-2">{tools.web !== false ? "Enabled" : "Disabled"}</span>
+      <span className="ml-2">{tools.web !== false ? "Enabled" : "Disabled"}</span>
       </div>
+    </div>
+
+    {/* Skills Section */}
+    <div className="border border-slate-800 rounded-md p-2 space-y-2">
+      <div className="font-semibold">Skills</div>
+      <div className="flex justify-between items-center">
+        <span>Enable Skills</span>
+        <button
+          role="switch"
+          aria-checked={skills.enabled !== false}
+          onClick={() =>
+            save({ ...cfg, skills: { ...skills, enabled: skills.enabled === false } })
+          }
+          data-testid="skills-toggle"
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            skills.enabled !== false ? "bg-sky-600" : "bg-slate-700"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              skills.enabled !== false ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+        <span className="ml-2">{skills.enabled !== false ? "Enabled" : "Disabled"}</span>
       </div>
+      <div className="text-slate-400 text-xs">Type /use-skill in chat to activate a skill for the current session.</div>
+    </div>
 
       {/* Permissions Section - Shell only for MVP */}
       <div className="border border-slate-800 rounded-md p-2 space-y-2">

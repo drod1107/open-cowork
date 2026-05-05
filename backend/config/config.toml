@@ -35,3 +35,7 @@ blocked_commands = [
 [permissions.web]
 fetch_url = "ask"
 search_web = "ask"
+
+[skills]
+enabled = true
+dir = "skills"

@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .agent import Agent
-from .config_loader import load_config, save_config
+from . import config_loader
 from .permissions import PermissionGate, PermissionRequest
 from .providers import ProviderClient
 from .sessions import (
@@ -40,10 +40,24 @@ from .sessions import (
     update_session_metadata,
 )
 from .tools.registry import build_registry
+from .skill_loader import discover_skills, load_skill_content, build_skill_prompt
 
 BUILTIN_PROVIDERS = {"ollama", "lmstudio", "vllm", "sglang", "nvidia"}
 
 logger = logging.getLogger(__name__)
+
+_SKILLS_BASE = Path(__file__).resolve().parent
+
+
+def _get_skills_dir(cfg: dict) -> Path | None:
+    raw = cfg.get("skills", {}).get("dir", "")
+    if not raw:
+        return None
+    p = Path(raw)
+    if p.is_absolute():
+        return p if p.is_dir() else None
+    resolved = _SKILLS_BASE / p
+    return resolved if resolved.is_dir() else None
 
 
 async def _build_history(session_id: str) -> list[dict[str, Any]]:
@@ -192,9 +206,9 @@ class HubState:
     def selected_model(self) -> str | None:
         return self._selected_model
 
-    # ---------------------------------------------------------- build agent
-    def build_agent(self, working_dir: str) -> Agent:
-        cfg = load_config()
+# ---------------------------------------------------------- build agent
+    async def build_agent(self, working_dir: str, session_id: str | None = None) -> Agent:
+        cfg = config_loader.load_config()
         model = self._selected_model or cfg.get("default_model") or ""
         if not model:
             raise RuntimeError("No model selected. Pick one in the UI or set default_model in config.")
@@ -203,6 +217,15 @@ class HubState:
         if cfg.get("provider") == "ollama" and not base_url.rstrip("/").endswith("/v1"):
             base_url = base_url.rstrip("/") + "/v1"
         system_prompt = cfg.get("agent", {}).get("system_prompt", "")
+        skills_dir = _get_skills_dir(cfg)
+        if skills_dir and session_id:
+            session = await get_session(session_id)
+            if session:
+                active_skills = session.get("metadata", {}).get("active_skills", [])
+                if active_skills and cfg.get("skills", {}).get("enabled", True):
+                    skill_prompt = build_skill_prompt(active_skills, skills_dir)
+                    if skill_prompt:
+                        system_prompt += skill_prompt
         max_turns = int(cfg.get("agent", {}).get("max_turns", 50))
         num_ctx = int(cfg.get("agent", {}).get("context_window", 8192))
         agent = Agent(
@@ -283,12 +306,12 @@ async def select_model(payload: dict[str, Any]) -> dict[str, Any]:
 # ------------------------------------------------------------------- config
 @app.get("/api/config")
 async def read_config() -> dict[str, Any]:
-    return load_config()
+    return config_loader.load_config()
 
 
 @app.put("/api/config")
 async def write_config(payload: dict[str, Any]) -> dict[str, Any]:
-    save_config(payload)
+    config_loader.save_config(payload)
     return {"ok": True}
 
 
@@ -298,7 +321,7 @@ class WorkingDirUpdate(BaseModel):
 
 @app.get("/api/config/working_dir")
 async def get_working_dir() -> dict[str, str]:
-    cfg = load_config()
+    cfg = config_loader.load_config()
     raw = cfg.get("runtime", {}).get("working_dir", ".")
     resolved = str(Path(raw).expanduser().resolve())
     return {"working_dir": resolved}
@@ -311,9 +334,9 @@ async def patch_working_dir(payload: WorkingDirUpdate) -> dict[str, str]:
         raise HTTPException(400, f"path does not exist: {p}")
     if not p.is_dir():
         raise HTTPException(400, f"path is not a directory: {p}")
-    cfg = load_config()
+    cfg = config_loader.load_config()
     cfg.setdefault("runtime", {})["working_dir"] = str(p)
-    save_config(cfg)
+    config_loader.save_config(cfg)
     return {"working_dir": str(p)}
 
 
@@ -325,12 +348,12 @@ async def add_provider(payload: dict[str, Any]) -> dict[str, Any]:
     provider_type = payload.get("provider_type")
     if not nickname or not base_url or not provider_type:
         raise HTTPException(422, "nickname, base_url, and provider_type are required")
-    cfg = load_config()
+    cfg = config_loader.load_config()
     providers = cfg.setdefault("providers", {})
     if nickname in providers:
         raise HTTPException(409, f"provider '{nickname}' already exists")
     providers[nickname] = {"type": provider_type, "base_url": base_url}
-    save_config(cfg)
+    config_loader.save_config(cfg)
     return {"ok": True}
 
 
@@ -338,12 +361,12 @@ async def add_provider(payload: dict[str, Any]) -> dict[str, Any]:
 async def delete_provider(name: str) -> dict[str, Any]:
     if name in BUILTIN_PROVIDERS:
         raise HTTPException(403, f"cannot delete built-in provider '{name}'")
-    cfg = load_config()
+    cfg = config_loader.load_config()
     providers = cfg.get("providers", {})
     if name not in providers:
         raise HTTPException(404, f"provider '{name}' not found")
     del providers[name]
-    save_config(cfg)
+    config_loader.save_config(cfg)
     return {"ok": True}
 
 
@@ -380,6 +403,42 @@ async def api_delete_session(session_id: str) -> dict[str, Any]:
     return {"deleted": deleted}
 
 
+# ----------------------------------------------------------------- skills
+@app.get("/api/skills")
+async def api_list_skills() -> dict[str, Any]:
+    cfg = config_loader.load_config()
+    skills_dir = _get_skills_dir(cfg)
+    if skills_dir is None:
+        return {"skills": []}
+    skill_list = discover_skills(skills_dir)
+    return {"skills": [{"name": s.name, "description": s.description} for s in skill_list]}
+
+
+class UseSkillRequest(BaseModel):
+    skill_name: str
+
+
+@app.post("/api/sessions/{session_id}/use-skill")
+async def api_use_skill(session_id: str, payload: UseSkillRequest) -> dict[str, Any]:
+    cfg = config_loader.load_config()
+    if not cfg.get("skills", {}).get("enabled", True):
+        raise HTTPException(400, "Skills are disabled in config")
+    skills_dir = _get_skills_dir(cfg)
+    if skills_dir is None:
+        raise HTTPException(404, f"Skill '{payload.skill_name}' not found")
+    content = load_skill_content(payload.skill_name, skills_dir)
+    if content is None:
+        raise HTTPException(404, f"Skill '{payload.skill_name}' not found")
+    session = await get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "session not found")
+    active_skills = list(session.get("metadata", {}).get("active_skills", []))
+    if payload.skill_name not in active_skills:
+        active_skills.append(payload.skill_name)
+    await update_session_metadata(session_id, {"active_skills": active_skills})
+    return {"activated": payload.skill_name}
+
+
 # -------------------------------------------------------------- WebSocket
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
@@ -410,10 +469,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     await websocket.send_json({"type": "session_id", "session_id": session_id})
                     is_new = True
 
-                cfg = load_config()
+                cfg = config_loader.load_config()
                 working_dir = cfg.get("runtime", {}).get("working_dir", ".")
                 try:
-                    agent = hub.build_agent(working_dir)
+                    agent = await hub.build_agent(working_dir, session_id=session_id)
                 except Exception as exc:
                     await websocket.send_json({"type": "error", "error": str(exc)})
                 else:

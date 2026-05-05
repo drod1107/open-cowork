@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentEvent, AgentSocket } from "../lib/ws";
+import { api } from "../lib/api";
 
 type ChatItem =
   | { kind: "user"; text: string; id: string }
@@ -37,6 +38,8 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
   const [busy, setBusy] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [skillSuggestions, setSkillSuggestions] = useState<Array<{ name: string; description: string }>>([]);
+  const [allSkills, setAllSkills] = useState<Array<{ name: string; description: string }>>([]);
   const assistantBufRef = useRef<string>("");
   const currentAssistantId = useRef<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -51,6 +54,10 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
     }
     prevLoadedItemsRef.current = loadedItems;
   }, [loadedItems]);
+
+  useEffect(() => {
+    api.listSkills().then((r) => setAllSkills(r.skills)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const off = socket.on((ev: AgentEvent) => {
@@ -140,6 +147,20 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
 
   const send = () => {
     if (!input.trim()) return;
+    const useSkillMatch = input.trim().match(/^\/use-skill\s+(\S+)\s*$/);
+    if (useSkillMatch && sessionId) {
+      const skillName = useSkillMatch[1];
+      api.useSkill(sessionId, skillName).then((r) => {
+        const id = crypto.randomUUID();
+        setItems((items) => [...items, { kind: "assistant", text: `Skill "${r.activated}" activated for this session.`, id }]);
+      }).catch((e) => {
+        const id = crypto.randomUUID();
+        setItems((items) => [...items, { kind: "error", text: e.message, id }]);
+      });
+      setInput("");
+      setSkillSuggestions([]);
+      return;
+    }
     const id = crypto.randomUUID();
     onFirstMessage?.(input.trim());
     setItems((items) => [...items, { kind: "user", text: input, id }]);
@@ -203,12 +224,22 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
           </div>
         )}
         <div className="flex gap-2 items-end">
+          <div className="flex-1 relative">
           <textarea
-            className="flex-1 bg-slate-900 rounded-md p-2 text-sm text-slate-100 outline-none border border-slate-800 focus:border-sky-600 resize-none"
+            className="w-full bg-slate-900 rounded-md p-2 text-sm text-slate-100 outline-none border border-slate-800 focus:border-sky-600 resize-none"
             rows={3}
             placeholder="Ask OpenCowork… (Enter to send, Shift+Enter for newline)"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setInput(val);
+              if (val.startsWith("/use-skill ")) {
+                const query = val.slice("/use-skill ".length).toLowerCase();
+                setSkillSuggestions(allSkills.filter((s) => s.name.toLowerCase().includes(query)));
+              } else {
+                setSkillSuggestions([]);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -217,6 +248,24 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
             }}
             data-testid="chat-input"
           />
+          {skillSuggestions.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-1 bg-slate-800 border border-slate-700 rounded-md shadow-lg max-h-32 overflow-y-auto z-10">
+              {skillSuggestions.map((s) => (
+                <button
+                  key={s.name}
+                  className="block w-full text-left px-3 py-1.5 text-xs hover:bg-slate-700"
+                  onClick={() => {
+                    setInput(`/use-skill ${s.name} `);
+                    setSkillSuggestions([]);
+                  }}
+                >
+                  <span className="font-mono text-sky-300">{s.name}</span>
+                  <span className="text-slate-400 ml-2">{s.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          </div>
 <div className="flex flex-col gap-1 relative">
       <button
         className="bg-sky-600 hover:bg-sky-500 text-white rounded-md px-3 py-2 text-sm h-1/2 disabled:opacity-50"

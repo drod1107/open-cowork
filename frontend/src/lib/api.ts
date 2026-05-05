@@ -70,4 +70,19 @@ export const api = {
       if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
       return json<{ working_dir: string }>(r);
     }),
+
+  listSkills: () =>
+    fetch("/api/skills").then((r) =>
+      json<{ skills: Array<{ name: string; description: string }> }>(r),
+    ),
+
+  useSkill: (sessionId: string, skillName: string) =>
+    fetch(`/api/sessions/${sessionId}/use-skill`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ skill_name: skillName }),
+    }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ activated: string }>(r);
+    }),
 };
