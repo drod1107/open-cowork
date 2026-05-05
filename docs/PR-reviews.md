@@ -1763,4 +1763,14 @@ Please write tests in `backend/tests/test_killswitch_extend.py` covering:
 6. `test_stop_current_clears_all_tool_handles` — after stop_current(), all _active_tools categories are empty
 7. `test_backward_compat_add_shell_pid_still_works` — add_shell_pid() + get_shell_pids() still work via the new internal structure
 
-**Awaiting QA tests.**
+**Tests Written: `backend/tests/test_killswitch_extend.py`**
+- 7 tests written, all fail as expected (HubState not yet refactored)
+- Tests define the contract: HubState needs register_tool(), _active_tools, refactored stop_current()
+
+**Awaiting implementation to make tests pass.**
+
+---
+
+## Next Up: Feature #5 - Web Tool
+
+After Feature #4, please add Feature #5 (Web Tool - fetch + search) to PR-reviews.md.
