@@ -1693,3 +1693,14 @@ Since the backend already exists and was tested in `test_session_endpoints.py`, 
 - `onFirstMessage` is an optional prop — no breaking changes to Chat interface
 
 **Awaiting QA review.**
+
+---
+
+## Next Up: Feature #4 - Kill-Switch for Non-Shell Tools
+
+Per PHASE2_PLAN.md implementation order, Feature #3 is complete. Please add Feature #4 (Kill-Switch Extension for Web/Browser/MCP tools) to PR-reviews.md with:
+- Dev plan for extending HubState to track non-shell PIDs
+- Backend kill method for each tool type  
+- QA test requests
+
+**Awaiting QA review.**
