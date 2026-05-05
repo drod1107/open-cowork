@@ -1696,11 +1696,71 @@ Since the backend already exists and was tested in `test_session_endpoints.py`, 
 
 ---
 
-## Next Up: Feature #4 - Kill-Switch for Non-Shell Tools
+## Phase 2: Feature #4 — Kill-Switch for Non-Shell Tools
 
-Per PHASE2_PLAN.md implementation order, Feature #3 is complete. Please add Feature #4 (Kill-Switch Extension for Web/Browser/MCP tools) to PR-reviews.md with:
-- Dev plan for extending HubState to track non-shell PIDs
-- Backend kill method for each tool type  
-- QA test requests
+**Branch:** `Phase2-Expansion`
+**Feature:** Kill-Switch for Non-Shell Tools (Feature #6 in PHASE2_PLAN.md)
+**Status:** DEV PLAN — Requesting QA tests
 
-**Awaiting QA review.**
+### Dev Plan
+
+**Goal:** Extend `HubState.stop_current()` to handle tool types beyond shell. Currently only shell PIDs are tracked and killed. We need extensible tracking so future tools (web, MCP, browser) can register their own cancellable resources and have them cleaned up on stop.
+
+**Current state:**
+- `HubState` has `_current_shell_pids: list[int]` + `add_shell_pid()` + `clear_shell_pids()`
+- `stop_current()` kills shell PIDs (SIGTERM→0.5s→SIGKILL), then cancels the agent task
+- Shell tool already registers PIDs via `on_shell_pid` callback (wired in `build_registry`)
+- No mechanism for non-shell tools to register cancellable work
+
+**Backend changes (`main.py` — HubState refactor):**
+
+1. Replace `_current_shell_pids: list[int]` with a generic `_active_tools: dict[str, list[Any]]` structure
+   - Key = tool category name, value = list of tool-specific kill handles
+   - `"shell"` → `list[int]` (PIDs — same as before)
+   - `"web"` → `list[asyncio.Task]` (in-flight HTTP request tasks — for future Web Tool)
+   - `"mcp"` → `list[asyncio.Task]` (MCP server subprocess tasks — for future MCP)
+
+2. Add generic registration methods:
+   - `register_tool(category: str, handle: Any) -> None` — adds a handle to a category
+   - `unregister_tool(category: str, handle: Any) -> None` — removes a specific handle
+
+3. Keep backward-compatible convenience methods:
+   - `add_shell_pid(pid: int)` → calls `register_tool("shell", pid)`
+   - `get_shell_pids()` → returns `self._active_tools.get("shell", [])`
+   - `clear_shell_pids()` → clears `self._active_tools["shell"]`
+
+4. Refactor `stop_current()` to iterate all categories:
+   - `"shell"` → existing SIGTERM→SIGKILL logic (unchanged)
+   - `"web"` → cancel all asyncio.Tasks in the list
+   - `"mcp"` → cancel all asyncio.Tasks in the list
+   - Unknown categories → if handle is an asyncio.Task, cancel it; if int, try os.kill
+   - Then cancel the agent task (unchanged)
+
+5. After all tools stopped, clear `_active_tools`
+
+**Frontend:** No changes needed — Stop button already sends `{type: "stop"}` which calls `hub.stop_current()` generically.
+
+**What changes:**
+- `main.py`: HubState class — add `_active_tools`, `register_tool()`, `unregister_tool()`, refactor `stop_current()`, keep backward-compat shell methods
+- `shell.py`: No changes — already uses `on_shell_pid` callback which calls `hub.add_shell_pid()`
+
+**What does NOT change:**
+- No new REST/WS endpoints
+- No config changes
+- No frontend changes
+- Shell kill behavior remains identical (SIGTERM→0.5s→SIGKILL)
+- Existing `test_stop_killswitch.py` tests must still pass (backward compat)
+
+### QA Tests Requested
+
+Please write tests in `backend/tests/test_killswitch_extend.py` covering:
+
+1. `test_register_tool_stores_handle_by_category` — `register_tool("web", task)` makes it retrievable
+2. `test_unregister_tool_removes_handle` — `unregister_tool("web", task)` removes it from the list
+3. `test_stop_current_cancels_web_tasks` — register an asyncio.Task as "web", call stop_current(), task gets cancelled
+4. `test_stop_current_cancels_mcp_tasks` — register an asyncio.Task as "mcp", call stop_current(), task gets cancelled
+5. `test_stop_current_handles_unknown_category_with_task` — register a Task under a custom category, stop_current cancels it
+6. `test_stop_current_clears_all_tool_handles` — after stop_current(), all _active_tools categories are empty
+7. `test_backward_compat_add_shell_pid_still_works` — add_shell_pid() + get_shell_pids() still work via the new internal structure
+
+**Awaiting QA tests.**
