@@ -1791,6 +1791,8 @@ Please write tests in `backend/tests/test_killswitch_extend.py` covering:
 - Backward compat verified: old `add_shell_pid`/`get_shell_pids`/`clear_shell_pids` delegate to new structure
 - No shims — `_active_tools` is the single source of truth
 
+**QA Review Complete - APPROVED ✅**
+
 **Awaiting QA review.**
 
 ---
@@ -1858,4 +1860,13 @@ Please write tests in `backend/tests/test_web_tool.py` covering:
 5. `test_search_web_blocked_by_permission` — when permission gate denies "web"/"search_web", returns denied result
 6. `test_fetch_url_rejects_binary_content_type` — when response has image/png content-type, returns error
 
-**Awaiting QA tests.**
+**Tests Written: `backend/tests/test_web_tool.py`**
+- 6 tests written, fail as expected (backend/tools/web.py doesn't exist yet)
+
+**Awaiting implementation.**
+
+---
+
+## Next Up: Feature #6 - Skills System
+
+After Feature #5, please add Feature #6 (Skills System) to PR-reviews.md.
