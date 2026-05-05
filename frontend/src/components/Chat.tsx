@@ -27,10 +27,11 @@ export interface ChatProps {
   sessionId?: string | null;
   onSessionId?: (id: string) => void;
   onSessionTitle?: (id: string, title: string) => void;
+  onFirstMessage?: (text: string) => void;
   loadedItems?: ChatItem[];
 }
 
-export default function Chat({ socket, hasModel = true, sessionId, onSessionId, onSessionTitle, loadedItems }: ChatProps) {
+export default function Chat({ socket, hasModel = true, sessionId, onSessionId, onSessionTitle, onFirstMessage, loadedItems }: ChatProps) {
   const [items, setItems] = useState<ChatItem[]>(loadedItems ?? []);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -140,6 +141,7 @@ export default function Chat({ socket, hasModel = true, sessionId, onSessionId, 
   const send = () => {
     if (!input.trim()) return;
     const id = crypto.randomUUID();
+    onFirstMessage?.(input.trim());
     setItems((items) => [...items, { kind: "user", text: input, id }]);
     const msg: { type: "chat"; text: string; session_id?: string } = { type: "chat", text: input };
     if (sessionId) msg.session_id = sessionId;

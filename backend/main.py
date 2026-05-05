@@ -350,7 +350,8 @@ async def api_update_session(session_id: str, payload: dict[str, Any]) -> dict[s
     ok = await update_session_metadata(session_id, metadata)
     if not ok:
         raise HTTPException(404, "session not found")
-    return {"ok": True}
+    session = await get_session(session_id)
+    return {"ok": True, "metadata": session["metadata"] if session else {}}
 
 
 @app.delete("/api/sessions/{session_id}")
