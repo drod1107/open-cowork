@@ -299,11 +299,28 @@ async def list_models(force: bool = False) -> dict[str, Any]:
         models = await hub.provider.list_models(force=force)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"provider error: {exc}")
+    model_ids = [m.id for m in models]
+    selected = hub.selected_model
+    auto_error: str | None = None
+    if selected is None:
+        cfg = config_loader.load_config()
+        default = cfg.get("default_model", "")
+        if default and default in model_ids:
+            hub.select_model(default)
+            selected = default
+        elif model_ids:
+            hub.select_model(model_ids[0])
+            selected = model_ids[0]
+        elif default:
+            auto_error = f"default_model '{default}' not found in available models"
+        else:
+            auto_error = "No models available from provider"
     return {
         "provider": hub.provider.provider,
         "base_url": hub.provider.base_url,
         "models": [m.to_dict() for m in models],
-        "selected": hub.selected_model,
+        "selected": selected,
+        "error": auto_error,
     }
 
 

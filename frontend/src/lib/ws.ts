@@ -5,12 +5,7 @@ export type AgentEvent =
   | { type: "tool_result"; tool: string; output: Record<string, unknown> }
   | {
       type: "permission_request";
-      request: {
-        id: string;
-        category: string;
-        action: string;
-        description: string;
-      };
+      request: { id: string; category: string; action: string; description: string };
     }
   | { type: "permission_resolved"; id: string; ok: boolean }
   | { type: "error"; error: string }
@@ -26,12 +21,15 @@ export type OutgoingMessage =
   | { type: "permission_response"; id: string; decision: string }
   | { type: "ping" };
 
+const PING_INTERVAL = 15_000;
+
 export class AgentSocket {
   private ws: WebSocket | null = null;
   private listeners = new Set<(ev: AgentEvent) => void>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private outbox: OutgoingMessage[] = [];
   private url: string;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
   public connected = false;
 
   constructor(url?: string) {
@@ -45,6 +43,22 @@ export class AgentSocket {
     }
   }
 
+  private startPing() {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === 1) {
+        this.ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, PING_INTERVAL);
+  }
+
+  private stopPing() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
   connect() {
     if (this.ws && this.ws.readyState <= 1) return;
     const ws = new WebSocket(this.url);
@@ -55,6 +69,7 @@ export class AgentSocket {
       const queued = this.outbox;
       this.outbox = [];
       for (const msg of queued) ws.send(JSON.stringify(msg));
+      this.startPing();
     };
     ws.onmessage = (e) => {
       try {
@@ -64,15 +79,16 @@ export class AgentSocket {
         /* ignore malformed frames */
       }
     };
-    ws.onclose = () => {
-      this.connected = false;
-      this.emitLocal({ type: "close" });
-      if (this.reconnectTimer) return;
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.connect();
-      }, 1500);
-    };
+  ws.onclose = (e) => {
+    this.connected = false;
+    this.stopPing();
+    this.emitLocal({ type: "close" });
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, 1500);
+  };
     ws.onerror = () => {
       try {
         ws.close();
@@ -83,6 +99,7 @@ export class AgentSocket {
   }
 
   disconnect() {
+    this.stopPing();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -99,11 +116,6 @@ export class AgentSocket {
     };
   }
 
-  /**
-   * Send a message. If the socket isn't open yet, queue it and flush on open.
-   * Returns true once sent OR queued, so callers don't need to handle a
-   * "not connected" case differently.
-   */
   send(msg: OutgoingMessage): boolean {
     if (this.ws && this.ws.readyState === 1) {
       this.ws.send(JSON.stringify(msg));

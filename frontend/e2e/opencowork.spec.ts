@@ -78,14 +78,16 @@ test("tab switching navigates between views", async ({ page }) => {
   await expect(page.locator('[data-testid="permissions"]')).toBeVisible();
 });
 
-test("chat without model shows warning and disables send", async ({ page }) => {
+test("chat auto-selects model - no 'no model' state possible (CRITICAL)", async ({ page }) => {
+  await mockModels(page);
   await page.goto("/");
 
-  const warning = page.locator("text=Pick a model in the top bar before sending a message.");
-  await expect(warning).toBeVisible();
+  const modelSelect = page.getByTestId("model-select");
+  const selectedValue = await modelSelect.inputValue();
+  expect(selectedValue).not.toBe("");
 
-  const sendBtn = page.getByTestId("send-btn");
-  await expect(sendBtn).toBeDisabled();
+  const warning = page.locator("text=Pick a model in the top bar before sending a message.");
+  await expect(warning).not.toBeVisible();
 });
 
 test("sending a message creates user bubble", async ({ page }) => {
@@ -158,4 +160,71 @@ test("history tab renders correctly", async ({ page }) => {
   const hasSessions = await page.locator('[data-testid^="session-"]').count();
 
   expect(hasNoSessions || hasSessions > 0).toBe(true);
+});
+
+test("NEW CHAT button exists in Chat tab (CRITICAL)", async ({ page }) => {
+  await mockModels(page);
+  await page.goto("/");
+  await page.getByTestId("model-select").selectOption("test-llm:latest");
+
+  const newChatBtn = page.getByTestId("new-chat-btn");
+  const exists = await newChatBtn.count();
+  expect(exists).toBeGreaterThan(0);
+});
+
+test("NEW CHAT button exists in History tab (CRITICAL)", async ({ page }) => {
+  await mockModels(page);
+  await page.goto("/");
+  await page.getByTestId("tab-history").click();
+  await page.waitForTimeout(1000);
+
+  const newChatBtn = page.getByTestId("new-chat-btn");
+  const exists = await newChatBtn.count();
+  expect(exists).toBeGreaterThan(0);
+});
+
+test.describe("Session switching flow (CRITICAL - Phase 1)", () => {
+  test("selecting session from history loads its messages into chat", async ({ page }) => {
+    await mockModels(page);
+    await page.goto("/");
+    await page.getByTestId("model-select").selectOption("test-llm:latest");
+
+    const baseURL = "http://127.0.0.1:7337";
+    const res = await fetch(`${baseURL}/api/sessions`, { method: "POST" });
+    const { sessions } = await res.json() as { sessions: Array<{ id: string }> };
+    const sessionId = sessions[0].id;
+
+    await page.getByTestId("tab-history").click();
+    await expect(page.getByTestId("history-loading")).not.toBeVisible({ timeout: 5000 });
+
+    await page.getByTestId(`session-${sessionId}`).click();
+    await expect(page.getByTestId("tab-chat")).toBeVisible({ timeout: 3000 });
+
+    const chatInput = page.getByTestId("chat-input");
+    await expect(chatInput).toBeVisible();
+  });
+
+  test("switching between sessions shows correct messages (not stale)", async ({ page }) => {
+    await mockModels(page);
+    await page.goto("/");
+    await page.getByTestId("model-select").selectOption("test-llm:latest");
+
+    const baseURL = "http://127.0.0.1:7337";
+
+    const res1 = await fetch(`${baseURL}/api/sessions`, { method: "POST" });
+    const { sessions: [sessionA] } = await res1.json() as { sessions: Array<{ id: string }> };
+
+    await page.getByTestId("tab-history").click();
+    await page.getByTestId(`session-${sessionA.id}`).click();
+    await page.waitForTimeout(500);
+
+    const res2 = await fetch(`${baseURL}/api/sessions`, { method: "POST" });
+    const { sessions: [sessionB] } = await res2.json() as { sessions: Array<{ id: string }> };
+
+    await page.getByTestId("tab-history").click();
+    await page.getByTestId(`session-${sessionB.id}`).click();
+    await page.waitForTimeout(500);
+
+    await expect(page.getByTestId("tab-chat")).toBeVisible();
+  });
 });

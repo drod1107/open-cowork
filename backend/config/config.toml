@@ -1,5 +1,6 @@
 provider = "ollama"
 base_url = "http://localhost:11434"
+default_model = "qwen3:14b"
 
 [providers.ollama]
 type = "ollama"

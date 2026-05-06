@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Chat from "./components/Chat";
 import HistoryTab from "./components/HistoryTab";
 import Permissions from "./components/Permissions";
@@ -25,6 +25,11 @@ export default function App() {
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
+  const [bugBarErrors, setBugBarErrors] = useState<string[]>([]);
+
+  const addError = useCallback((msg: string) => {
+    setBugBarErrors((prev) => [...prev, msg]);
+  }, []);
 
   useEffect(() => {
     const off = socket.on((ev) => {
@@ -116,6 +121,13 @@ export default function App() {
     setEditingTitle(false);
   };
 
+  const handleNewChat = () => {
+    setActiveSessionId(null);
+    setLoadedSession(null);
+    setSessionTitle(null);
+    window.location.hash = "";
+  };
+
   const handleFirstMessage = (text: string) => {
     if (!activeSessionId || sessionTitle) return;
     const autoTitle = text.length > 50 ? text.slice(0, 50).replace(/\s+\S*$/, "") : text;
@@ -131,13 +143,13 @@ export default function App() {
     : undefined;
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col overflow-hidden">
       {/* Top bar - only show on chat tab for now */}
       {tab === "chat" && (
-  <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-800">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-700 flex-shrink-0">
+        <div className="flex items-center gap-3 min-w-0 overflow-hidden">
           <div className="font-semibold tracking-tight">OpenCowork</div>
-          <ModelPicker onChange={setSelectedModel} />
+          <ModelPicker onChange={setSelectedModel} onError={addError} />
           {activeSessionId && !editingTitle && (
             <span
               className="text-xs text-slate-300 cursor-pointer hover:text-sky-300 truncate max-w-[200px]"
@@ -163,32 +175,40 @@ export default function App() {
             />
           )}
           <span
-              className={`text-xs px-2 py-0.5 rounded-full ${
-                connected ? "bg-emerald-700/40 text-emerald-200" : "bg-red-800/40 text-red-200"
-              }`}
-              data-testid="ws-status"
-            >
-              {connected ? "connected" : "disconnected"}
-            </span>
-          </div>
-        </header>
+            className={`text-xs px-2 py-0.5 rounded-full ${
+              connected ? "bg-emerald-800 text-emerald-100" : "bg-red-800 text-red-100"
+            }`}
+            data-testid="ws-status"
+          >
+            {connected ? "connected" : "disconnected"}
+          </span>
+        </div>
+        <button
+          className="text-slate-300 hover:text-sky-300 text-lg font-bold px-2"
+          onClick={handleNewChat}
+          data-testid="new-chat-btn"
+          title="Start new chat"
+        >
+          +
+        </button>
+      </header>
       )}
 
     {/* Main content area - scrollable */}
-    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
       <div className={tab === "chat" ? "h-full" : "hidden"}>
-        <Chat socket={socket} hasModel={!!selectedModel} sessionId={activeSessionId} onSessionId={handleSessionId} onSessionTitle={handleSessionTitle} onFirstMessage={handleFirstMessage} loadedItems={chatItems} />
+                <Chat socket={socket} connected={connected} sessionId={activeSessionId} onSessionId={handleSessionId} onSessionTitle={handleSessionTitle} onFirstMessage={handleFirstMessage} loadedItems={chatItems} errors={bugBarErrors} onAddError={addError} />
       </div>
-      {tab === "history" && <HistoryTab onSelect={handleHistorySelect} onDelete={handleHistoryDelete} refreshKey={historyRefreshKey} />}
+      {tab === "history" && <HistoryTab onSelect={handleHistorySelect} onDelete={handleHistoryDelete} onNewChat={handleNewChat} refreshKey={historyRefreshKey} />}
       {tab === "settings" && <Permissions />}
     </div>
 
       {/* Bottom tab bar - fixed */}
-      <nav className="flex border-t border-slate-800 bg-slate-900">
+      <nav className="flex border-t border-slate-700 bg-slate-800 flex-shrink-0">
         {(["chat", "history", "settings"] as const).map((t) => (
           <button
             key={t}
-            className={`flex-1 py-3 text-xs ${tab === t ? "text-sky-400" : "text-slate-500"}`}
+            className={`flex-1 py-3 text-xs font-medium ${tab === t ? "text-sky-400" : "text-slate-400"}`}
             onClick={() => setTab(t)}
             data-testid={`tab-${t}`}
           >

@@ -3,9 +3,10 @@ import { api, type Model } from "../lib/api";
 
 export interface ModelPickerProps {
   onChange?: (selected: string | null) => void;
+  onError?: (msg: string) => void;
 }
 
-export default function ModelPicker({ onChange }: ModelPickerProps) {
+export default function ModelPicker({ onChange, onError }: ModelPickerProps) {
   const [models, setModels] = useState<Model[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [provider, setProvider] = useState<string>("");
@@ -23,10 +24,35 @@ export default function ModelPicker({ onChange }: ModelPickerProps) {
     try {
       const r = await api.listModels(force);
       setModels(r.models);
-      apply(r.selected);
       setProvider(r.provider);
+
+      if (r.error) {
+        onError?.(r.error);
+        setError(r.error);
+      }
+
+      if (r.selected) {
+        apply(r.selected);
+      } else if (r.models.length > 0) {
+        const autoId = r.models[0].id;
+        try {
+          await api.selectModel(autoId);
+          apply(autoId);
+        } catch (e) {
+          const msg = `Model auto-select failed: ${e instanceof Error ? e.message : String(e)}`;
+          onError?.(msg);
+          setError(msg);
+        }
+      } else {
+        const msg = "No models available from provider. Is Ollama running?";
+        onError?.(msg);
+        setError(msg);
+        apply(null);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = `Cannot connect to model provider: ${e instanceof Error ? e.message : String(e)}`;
+      onError?.(msg);
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -43,7 +69,9 @@ export default function ModelPicker({ onChange }: ModelPickerProps) {
       await api.selectModel(id);
       apply(id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = `Model selection failed: ${e instanceof Error ? e.message : String(e)}`;
+      onError?.(msg);
+      setError(msg);
     }
   };
 
@@ -51,7 +79,7 @@ export default function ModelPicker({ onChange }: ModelPickerProps) {
     <div className="flex items-center gap-2" data-testid="model-picker">
       <span className="text-xs text-slate-400">{provider || "…"}</span>
       <select
-        className="bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-sm"
+        className="bg-slate-800 border border-slate-600 rounded-md px-2 py-1 text-sm max-w-[160px] truncate"
         value={selected ?? ""}
         onChange={(e) => void choose(e.target.value)}
         data-testid="model-select"
@@ -67,7 +95,7 @@ export default function ModelPicker({ onChange }: ModelPickerProps) {
         ))}
       </select>
       <button
-        className="text-xs bg-slate-800 hover:bg-slate-700 rounded-md px-2 py-1"
+        className="text-xs bg-slate-700 hover:bg-slate-600 rounded-md px-2 py-1"
         onClick={() => void load(true)}
         data-testid="refresh-models"
         title="refresh model list"

@@ -8,7 +8,7 @@ async function json<T>(r: Response): Promise<T> {
 export const api = {
   listModels: (force = false) =>
     fetch(`/api/models?force=${force}`).then((r) =>
-      json<{ provider: string; base_url: string; models: Model[]; selected: string | null }>(r),
+      json<{ provider: string; base_url: string; models: Model[]; selected: string | null; error?: string }>(r),
     ),
   selectModel: (model: string) =>
     fetch("/api/models/select", {

@@ -239,7 +239,7 @@ export default function Permissions() {
     }
   };
 
-  if (!cfg) return <div className="p-3 text-xs text-slate-500">loading…</div>;
+  if (!cfg) return <div className="p-3 text-xs text-slate-400">loading…</div>;
 
   const tools = (cfg.tools ?? {}) as ToolConfig;
   const skills = (cfg.skills ?? {}) as SkillConfig;
@@ -250,11 +250,11 @@ export default function Permissions() {
 
   return (
     <div className="p-3 space-y-3 text-xs" data-testid="permissions">
-      <div className="font-semibold">Settings</div>
+      <div className="font-semibold text-slate-100">Settings</div>
       {error && <div className="text-red-400">{error}</div>}
 
       {/* Model Providers Section */}
-      <div className="border border-slate-800 rounded-md p-2 space-y-2">
+      <div className="border border-slate-600 rounded-md p-2 space-y-2">
         <div className="flex justify-between items-center">
           <div className="font-semibold">Model Providers</div>
           <button
@@ -275,13 +275,13 @@ export default function Permissions() {
             >
               <div>
                 <span className="font-mono">{name}</span>
-                <span className="text-slate-500 ml-2">{entry.type}</span>
-                <span className="text-slate-600 ml-2">{entry.base_url}</span>
+                <span className="text-slate-400 ml-2">{entry.type}</span>
+                <span className="text-slate-500 ml-2">{entry.base_url}</span>
               </div>
               <button
                 className={`text-xs px-1 rounded ${
                   BUILTIN_PROVIDERS.has(name)
-                    ? "text-slate-600 cursor-not-allowed"
+                    ? "text-slate-500 cursor-not-allowed"
                     : "text-red-400 hover:bg-red-900/30"
                 }`}
                 disabled={BUILTIN_PROVIDERS.has(name)}
@@ -294,7 +294,7 @@ export default function Permissions() {
             </div>
           ))}
           {Object.keys(providers).length === 0 && (
-            <div className="text-slate-500">No providers configured</div>
+            <div className="text-slate-400">No providers configured</div>
           )}
         </div>
 
@@ -307,7 +307,7 @@ export default function Permissions() {
             <div className="space-y-1">
               <div className="text-slate-400">Provider Type</div>
               <select
-                className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs"
                 value={formType}
                 onChange={(e) => handleFormTypeChange(e.target.value)}
                 data-testid="provider-type-select"
@@ -323,7 +323,7 @@ export default function Permissions() {
             <div className="space-y-1">
               <div className="text-slate-400">Nickname</div>
               <input
-                className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs"
                 value={formNickname}
                 onChange={(e) => setFormNickname(e.target.value)}
                 placeholder="my-provider"
@@ -334,7 +334,7 @@ export default function Permissions() {
             <div className="space-y-1">
               <div className="text-slate-400">Base URL</div>
               <input
-                className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs"
+                className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs"
                 value={formBaseUrl}
                 onChange={(e) => setFormBaseUrl(e.target.value)}
                 placeholder={formType === "custom" ? "https://api.example.com" : ""}
@@ -346,7 +346,7 @@ export default function Permissions() {
               <div className="space-y-1">
                 <div className="text-slate-400">API Key (optional for Custom)</div>
                 <input
-                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs"
                   type="password"
                   value={formApiKey}
                   onChange={(e) => setFormApiKey(e.target.value)}
@@ -377,7 +377,7 @@ export default function Permissions() {
       </div>
 
       {/* Working Directory Section */}
-  <div className="border border-slate-800 rounded-md p-2 space-y-2">
+  <div className="border border-slate-600 rounded-md p-2 space-y-2">
     <div className="font-semibold">Working Directory</div>
     {!editingWorkingDir ? (
       <div className="flex items-center gap-2">
@@ -393,7 +393,7 @@ export default function Permissions() {
     ) : (
       <div className="space-y-2">
         <input
-          className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
+          className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
           value={workingDirInput}
           onChange={(e) => setWorkingDirInput(e.target.value)}
           data-testid="working-dir-input"
@@ -420,7 +420,7 @@ export default function Permissions() {
   </div>
 
   {/* Tools Section */}
-      <div className="border border-slate-800 rounded-md p-2 space-y-2">
+      <div className="border border-slate-600 rounded-md p-2 space-y-2">
         <div className="font-semibold">Tools</div>
         <div className="flex justify-between items-center">
           <span>Shell/Bash Tool</span>
@@ -488,7 +488,7 @@ export default function Permissions() {
     </div>
 
     {/* Skills Section */}
-    <div className="border border-slate-800 rounded-md p-2 space-y-2">
+    <div className="border border-slate-600 rounded-md p-2 space-y-2">
       <div className="font-semibold">Skills</div>
       <div className="flex justify-between items-center">
         <span>Enable Skills</span>
@@ -515,7 +515,7 @@ export default function Permissions() {
     </div>
 
       {/* Permissions Section - Shell only for MVP */}
-      <div className="border border-slate-800 rounded-md p-2 space-y-2">
+      <div className="border border-slate-600 rounded-md p-2 space-y-2">
         <div className="font-semibold">Permissions (Shell)</div>
 
         {/* Allowed commands */}
@@ -579,7 +579,7 @@ export default function Permissions() {
     </div>
 
     {/* Permissions Section - Web */}
-    <div className="border border-slate-800 rounded-md p-2 space-y-2">
+    <div className="border border-slate-600 rounded-md p-2 space-y-2">
       <div className="font-semibold">Permissions (Web)</div>
       {(["fetch_url", "search_web"] as const).map((action) => {
         const current = webPerms[action] ?? "ask";
@@ -616,7 +616,7 @@ export default function Permissions() {
 
       {/* MCP Servers Section */}
       {tools.mcp !== false && (
-        <div className="border border-slate-800 rounded-md p-2 space-y-2" data-testid="mcp-servers-section">
+        <div className="border border-slate-600 rounded-md p-2 space-y-2" data-testid="mcp-servers-section">
           <div className="flex justify-between items-center">
             <div className="font-semibold">MCP Servers</div>
             <button
@@ -643,7 +643,7 @@ export default function Permissions() {
                         ? "text-emerald-400"
                         : srv.status === "error"
                         ? "text-red-400"
-                        : "text-slate-500"
+                        : "text-slate-400"
                     }`}
                   >
                     {srv.status}
@@ -676,7 +676,7 @@ export default function Permissions() {
               </div>
             ))}
             {mcpServers.length === 0 && (
-              <div className="text-slate-500">No MCP servers configured</div>
+              <div className="text-slate-400">No MCP servers configured</div>
             )}
           </div>
 
@@ -688,7 +688,7 @@ export default function Permissions() {
               <div className="space-y-1">
                 <div className="text-slate-400">Name</div>
                 <input
-                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
                   value={mcpFormName}
                   onChange={(e) => setMcpFormName(e.target.value)}
                   placeholder="filesystem"
@@ -698,7 +698,7 @@ export default function Permissions() {
               <div className="space-y-1">
                 <div className="text-slate-400">Command</div>
                 <input
-                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
                   value={mcpFormCommand}
                   onChange={(e) => setMcpFormCommand(e.target.value)}
                   placeholder="npx"
@@ -708,7 +708,7 @@ export default function Permissions() {
               <div className="space-y-1">
                 <div className="text-slate-400">Args (space-separated)</div>
                 <input
-                  className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-md px-2 py-1 text-xs font-mono"
                   value={mcpFormArgs}
                   onChange={(e) => setMcpFormArgs(e.target.value)}
                   placeholder="-y @modelcontextprotocol/server-filesystem /tmp"
@@ -740,7 +740,7 @@ export default function Permissions() {
       {tools.mcp !== false && (() => {
         const mcpPerms = perms.mcp ?? {};
         return (
-          <div className="border border-slate-800 rounded-md p-2 space-y-2" data-testid="mcp-permissions-section">
+          <div className="border border-slate-600 rounded-md p-2 space-y-2" data-testid="mcp-permissions-section">
             <div className="font-semibold">Permissions (MCP)</div>
             <div className="flex justify-between items-center">
               <span className="font-mono">default</span>
