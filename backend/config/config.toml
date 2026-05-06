@@ -8,10 +8,14 @@ base_url = "http://localhost:11434"
 [tools]
 shell = false
 web = true
+mcp = true
 
 [permissions.web]
 fetch_url = "ask"
 search_web = "ask"
+
+[permissions.mcp]
+default = "ask"
 
 [permissions.shell]
 allowed_commands = [

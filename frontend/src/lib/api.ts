@@ -85,4 +85,37 @@ export const api = {
       if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
       return json<{ activated: string }>(r);
     }),
+
+  listMCPServers: () =>
+    fetch("/api/mcp").then((r) =>
+      json<{ servers: Array<{ name: string; status: string; tools_count: number; error?: string }> }>(r),
+    ),
+
+  addMCPServer: (name: string, config: { command: string; args?: string[]; env?: Record<string, string>; disabled?: boolean }) =>
+    fetch("/api/mcp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, config }),
+    }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ ok: boolean; name: string }>(r);
+    }),
+
+  deleteMCPServer: (name: string) =>
+    fetch(`/api/mcp/${encodeURIComponent(name)}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ ok: boolean }>(r);
+    }),
+
+  startMCPServer: (name: string) =>
+    fetch(`/api/mcp/${encodeURIComponent(name)}/start`, { method: "POST" }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ name: string; status: string }>(r);
+    }),
+
+  stopMCPServer: (name: string) =>
+    fetch(`/api/mcp/${encodeURIComponent(name)}/stop`, { method: "POST" }).then((r) => {
+      if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || `${r.status}`); });
+      return json<{ name: string; status: string }>(r);
+    }),
 };

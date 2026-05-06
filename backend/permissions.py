@@ -53,7 +53,7 @@ _CATEGORY_LIST_KEYS: dict[str, tuple[str, str]] = {
 }
 
 # Categories whose default flag lives under `permissions.<category>.default`.
-_DEFAULT_CATEGORIES = {"shell", "filesystem", "browser", "computer_use", "coding"}
+_DEFAULT_CATEGORIES = {"shell", "filesystem", "browser", "computer_use", "coding", "mcp"}
 
 
 def _matches_any(patterns: list[str], value: str) -> bool:
@@ -94,9 +94,8 @@ class PermissionGate:
     def _lookup_default(self, perms: dict[str, Any], category: str, action: str) -> str:
         """Return 'ask' | 'allow' | 'deny' for this category/action."""
         sub = perms.get(category, {})
-        if category == "web":
-            # web has per-action defaults (search / fetch) not a generic default.
-            return sub.get(action, "ask")
+        if category == "web" or category == "mcp":
+            return sub.get(action, sub.get("default", "ask"))
         if category in _DEFAULT_CATEGORIES:
             return sub.get("default", "ask")
         return "ask"

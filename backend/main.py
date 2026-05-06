@@ -41,6 +41,7 @@ from .sessions import (
 )
 from .tools.registry import build_registry
 from .skill_loader import discover_skills, load_skill_content, build_skill_prompt
+from .mcp import MCPManager
 
 BUILTIN_PROVIDERS = {"ollama", "lmstudio", "vllm", "sglang", "nvidia"}
 
@@ -81,6 +82,7 @@ class HubState:
     def __init__(self) -> None:
         self.gate = PermissionGate()
         self.provider = ProviderClient()
+        self.mcp_manager = MCPManager()
         self._pending_permissions: dict[str, asyncio.Future] = {}
         self._ws_clients: set[WebSocket] = set()
         self._selected_model: str | None = None
@@ -236,6 +238,11 @@ class HubState:
             num_ctx=num_ctx,
         )
         agent.tools = build_registry(self.gate, working_dir=working_dir, on_shell_pid=self.add_shell_pid, on_web_task=lambda t: self.register_tool("web", t))
+        tools_cfg = cfg.get("tools", {})
+        if tools_cfg.get("mcp", True):
+            mcp_specs = self.mcp_manager.get_tool_specs(self.gate)
+            for name, spec in mcp_specs.items():
+                agent.register(spec)
         return agent
 
 
@@ -251,10 +258,17 @@ async def lifespan(app: FastAPI):
     app.state.hub = hub
     hub.gate.set_prompter(hub.prompt_permission)
     await sessions_init_db()
+    cfg = config_loader.load_config()
+    if cfg.get("tools", {}).get("mcp", True):
+        try:
+            await hub.mcp_manager.start(cfg)
+        except Exception as exc:
+            logger.warning("MCP startup failed: %s", exc)
 
     try:
         yield
     finally:
+        await hub.mcp_manager.stop()
         await hub.provider.close()
 
 
@@ -435,8 +449,88 @@ async def api_use_skill(session_id: str, payload: UseSkillRequest) -> dict[str, 
     active_skills = list(session.get("metadata", {}).get("active_skills", []))
     if payload.skill_name not in active_skills:
         active_skills.append(payload.skill_name)
-    await update_session_metadata(session_id, {"active_skills": active_skills})
+        await update_session_metadata(session_id, {"active_skills": active_skills})
     return {"activated": payload.skill_name}
+
+
+# -------------------------------------------------------------------- mcp
+@app.get("/api/mcp")
+async def api_list_mcp() -> dict[str, Any]:
+    hub: HubState = app.state.hub
+    return {"servers": hub.mcp_manager.get_status()}
+
+
+class MCPServerConfig(BaseModel):
+    command: str
+    args: list[str] = []
+    env: dict[str, str] | None = None
+    disabled: bool = False
+
+
+@app.post("/api/mcp")
+async def api_add_mcp(payload: dict[str, Any]) -> dict[str, Any]:
+    hub: HubState = app.state.hub
+    name = payload.get("name")
+    if not name:
+        raise HTTPException(422, "name is required")
+    server_cfg = payload.get("config", {})
+    command = server_cfg.get("command")
+    if not command:
+        raise HTTPException(422, "config.command is required")
+    cfg = config_loader.load_config()
+    mcp_section = cfg.setdefault("mcp", {})
+    if name in mcp_section:
+        raise HTTPException(409, f"MCP server '{name}' already exists")
+    entry = {"command": command}
+    if server_cfg.get("args"):
+        entry["args"] = server_cfg["args"]
+    if server_cfg.get("env"):
+        entry["env"] = server_cfg["env"]
+    if server_cfg.get("disabled"):
+        entry["disabled"] = True
+    mcp_section[name] = entry
+    config_loader.save_config(cfg)
+    try:
+        await hub.mcp_manager.add_server(name, entry)
+    except Exception as exc:
+        logger.warning("MCP add_server runtime error: %s", exc)
+    return {"ok": True, "name": name}
+
+
+@app.delete("/api/mcp/{name}")
+async def api_delete_mcp(name: str) -> dict[str, Any]:
+    hub: HubState = app.state.hub
+    cfg = config_loader.load_config()
+    mcp_section = cfg.get("mcp", {})
+    if name not in mcp_section:
+        raise HTTPException(404, f"MCP server '{name}' not found")
+    del mcp_section[name]
+    if not mcp_section:
+        del cfg["mcp"]
+    config_loader.save_config(cfg)
+    await hub.mcp_manager.remove_server(name)
+    return {"ok": True}
+
+
+@app.post("/api/mcp/{name}/start")
+async def api_start_mcp(name: str) -> dict[str, Any]:
+    hub: HubState = app.state.hub
+    try:
+        status = await hub.mcp_manager.start_server(name)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"failed to start MCP server: {exc}")
+    return {"name": name, "status": status}
+
+
+@app.post("/api/mcp/{name}/stop")
+async def api_stop_mcp(name: str) -> dict[str, Any]:
+    hub: HubState = app.state.hub
+    await hub.mcp_manager.stop_server(name)
+    return {"name": name, "status": "disconnected"}
 
 
 # -------------------------------------------------------------- WebSocket
