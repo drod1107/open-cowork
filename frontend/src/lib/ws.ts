@@ -13,7 +13,7 @@ export type AgentEvent =
   | { type: "session_title"; session_id: string; title: string }
   | { type: "pong" }
   | { type: "open" }
-  | { type: "close" };
+  | { type: "close"; code: number; reason: string };
 
 export type OutgoingMessage =
   | { type: "chat"; text: string; session_id?: string }
@@ -80,16 +80,18 @@ export class AgentSocket {
       }
     };
   ws.onclose = (e) => {
-    this.connected = false;
-    this.stopPing();
-    this.emitLocal({ type: "close" });
-    if (this.reconnectTimer) return;
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
-    }, 1500);
-  };
-    ws.onerror = () => {
+      this.connected = false;
+      this.stopPing();
+      this.emitLocal({ type: "close", code: e.code, reason: e.reason });
+      if (this.reconnectTimer) return;
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.connect();
+      }, 1500);
+    };
+    ws.onerror = (e) => {
+      const msg = e instanceof ErrorEvent ? e.message : "WebSocket error";
+      this.emitLocal({ type: "error", error: `WebSocket connection error: ${msg}` });
       try {
         ws.close();
       } catch {
@@ -121,9 +123,9 @@ export class AgentSocket {
       this.ws.send(JSON.stringify(msg));
       return true;
     }
-    this.outbox.push(msg);
     if (!this.ws || this.ws.readyState >= 2) this.connect();
-    return true;
+    this.outbox.push(msg);
+    return false;
   }
 
   private emitLocal(ev: AgentEvent) {

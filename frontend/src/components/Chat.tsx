@@ -40,6 +40,7 @@ export default function Chat({ socket, connected = true, sessionId, onSessionId,
   const [busy, setBusy] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [localLogs, setLocalLogs] = useState<string[]>([]);
+  const localLogsRef = useRef<string[]>([]);
   const debugLogs = useMemo(() => [...errors, ...localLogs], [errors, localLogs]);
   const [skillSuggestions, setSkillSuggestions] = useState<Array<{ name: string; description: string }>>([]);
   const [allSkills, setAllSkills] = useState<Array<{ name: string; description: string }>>([]);
@@ -82,7 +83,8 @@ export default function Chat({ socket, connected = true, sessionId, onSessionId,
   const pushLog = (msg: string) => {
     const ts = new Date().toISOString().slice(11, 19);
     const entry = `[${ts}] ${msg}`;
-    setLocalLogs((logs) => [...logs, entry]);
+    localLogsRef.current = [...localLogsRef.current, entry];
+    setLocalLogs(localLogsRef.current);
     onAddError?.(entry);
   };
 
@@ -181,9 +183,10 @@ export default function Chat({ socket, connected = true, sessionId, onSessionId,
     } else if (ev.type === "session_title") {
       onSessionTitle?.(ev.session_id, ev.title);
     } else if (ev.type === "close") {
-      pushLog("WebSocket disconnected");
+      const detail = ev.reason ? ` (code ${ev.code}: ${ev.reason})` : ` (code ${ev.code})`;
+      pushLog(`WebSocket disconnected${detail}`);
     } else if (ev.type === "open") {
-      if (localLogs.length > 0) {
+      if (localLogsRef.current.length > 0) {
         pushLog("WebSocket reconnected");
       }
     }
@@ -205,7 +208,9 @@ export default function Chat({ socket, connected = true, sessionId, onSessionId,
           setItems((items) => [...items, { kind: "assistant", text: `Skill "${r.activated}" activated for this session.`, id }]);
         }).catch((e) => {
           const id = crypto.randomUUID();
-          setItems((items) => [...items, { kind: "error", text: e.message, id }]);
+          const msg = e instanceof Error ? e.message : String(e);
+          pushLog(`Skill activation failed: ${msg}`);
+          setItems((items) => [...items, { kind: "error", text: msg, id }]);
         });
       }
       setInput("");
@@ -217,7 +222,10 @@ export default function Chat({ socket, connected = true, sessionId, onSessionId,
     setItems((items) => [...items, { kind: "user", text: input, id }]);
     const msg: { type: "chat"; text: string; session_id?: string } = { type: "chat", text: input };
     if (sessionId) msg.session_id = sessionId;
-    socket.send(msg);
+    const sent = socket.send(msg);
+    if (!sent) {
+      pushLog("Message queued — WebSocket not connected, will send on reconnect");
+    }
     setInput("");
     setBusy(true);
     busySinceRef.current = Date.now();
